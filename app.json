@@ -1,0 +1,46 @@
+{
+  "expo": {
+    "name": "shoot'ha Business",
+    "slug": "shoota-business",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0f766e"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.shootabusiness.app",
+      "infoPlist": {
+        "CFBundleDevelopmentRegion": "ar",
+        "CFBundleAllowMixedLocalizations": false
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0f766e"
+      },
+      "package": "com.shootabusiness.app"
+    },
+    "plugins": [
+      "expo-notifications",
+      [
+        "expo-secure-store",
+        {
+          "faceIDPermission": "اسمح لتطبيق shoot'ha باستخدام بصمة الوجه."
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "YOUR_EAS_PROJECT_ID"
+      },
+      "fieldOwnerLinkId": ""
+    }
+  }
+}

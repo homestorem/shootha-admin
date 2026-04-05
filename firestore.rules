@@ -1,0 +1,131 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    match /field_requests/{requestId} {
+      allow create: if request.auth != null;
+      /** صاحب الطلب فقط يقرأ حالة الطلب (قبول/رفض من لوحة الإدارة) */
+      allow read: if request.auth != null && request.auth.uid == resource.data.userUid;
+      allow delete: if false;
+      /** تعليم إشعار القبول/الرفض كمقروء من التطبيق فقط */
+      allow update: if request.auth != null
+        && request.auth.uid == resource.data.userUid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["approvalNoticeRead"]);
+    }
+
+    /** إشعارات المالك — القراءة وتعليم كمقروء فقط؛ الإنشاء من لوحة Firebase أو Cloud Functions */
+    match /users/{userId}/notifications/{notificationId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow create, delete: if false;
+      allow update: if request.auth != null
+        && request.auth.uid == userId
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(["isRead"]);
+    }
+
+    /**
+     * مجموعة جذرية `notifications` — التطبيق: userUid / user_id = Firebase uid؛ الداشبورد: userId = ownerId العام (owner_...).
+     */
+    /** ملاعب المالك — تُنشأ من التطبيق بعد قبول طلب أو يدوياً */
+    match /owner_fields/{fieldId} {
+      allow read: if request.auth != null && resource.data.ownerUid == request.auth.uid;
+      allow create: if request.auth != null && request.resource.data.ownerUid == request.auth.uid;
+      allow update: if request.auth != null && resource.data.ownerUid == request.auth.uid;
+      allow delete: if request.auth != null && resource.data.ownerUid == request.auth.uid;
+    }
+
+    /** تقييمات اللاعبين بعد انتهاء المباراة — إنشاء من تطبيق المالك فقط */
+    match /player_ratings/{ratingId} {
+      allow create: if request.auth != null
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.rating >= 1
+        && request.resource.data.rating <= 5;
+      allow read: if request.auth != null && resource.data.ownerUid == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    /** حجوزات المالك (يدوي / لاعب) */
+    match /owner_bookings/{bookingId} {
+      allow read: if request.auth != null && resource.data.ownerUid == request.auth.uid;
+      allow create: if request.auth != null && request.resource.data.ownerUid == request.auth.uid;
+      allow update: if request.auth != null && resource.data.ownerUid == request.auth.uid;
+      allow delete: if request.auth != null && resource.data.ownerUid == request.auth.uid;
+    }
+
+    /**
+     * ملاعب الداشبورد — ownerId يطابق users/{uid}.ownerId (قراءة فقط من التطبيق)
+     */
+    match /fields/{fieldId} {
+      function ownsDashboardField() {
+        return request.auth != null
+          && resource.data.ownerId is string
+          && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+          && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.ownerId == resource.data.ownerId;
+      }
+      allow read: if ownsDashboardField();
+      allow create, update, delete: if false;
+    }
+
+    /**
+     * حجوزات الداشبورد — ownerId = owner_... يطابق users/{uid}.ownerId
+     */
+    match /bookings/{bookingId} {
+      function ownsDashboardBooking() {
+        return request.auth != null
+          && resource.data.ownerId is string
+          && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+          && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.ownerId == resource.data.ownerId;
+      }
+      function ownsNewDashboardBooking() {
+        return request.auth != null
+          && request.resource.data.ownerId is string
+          && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+          && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.ownerId == request.resource.data.ownerId;
+      }
+      allow read: if ownsDashboardBooking();
+      /** مزامنة حجز يدوي من تطبيق المالك — يجب أن يحمل syncSource و ownerBookingId */
+      allow create: if ownsNewDashboardBooking()
+        && request.resource.data.syncSource == "owner_app"
+        && request.resource.data.ownerBookingId is string;
+      allow update: if ownsDashboardBooking();
+      allow delete: if ownsDashboardBooking();
+    }
+
+    match /notifications/{notificationId} {
+      /** owner_... في المستند يطابق users/{uid}.ownerId أو لاحقة من Firebase UID (نفس deriveOwnerIdFromUid في التطبيق). */
+      function ownerPublicIdAllowed(oid) {
+        return oid is string
+          && (
+            (
+              exists(/databases/$(database)/documents/users/$(request.auth.uid))
+              && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.ownerId == oid
+            )
+            || (
+              oid.split('_').size() == 2
+              && oid.split('_')[0] == 'owner'
+              && request.auth.uid.matches('.*' + oid.split('_')[1] + '$')
+            )
+          );
+      }
+      function ownsDashboardNotification() {
+        return request.auth != null
+          && (ownerPublicIdAllowed(resource.data.userId) || ownerPublicIdAllowed(resource.data.ownerId));
+      }
+      function ownsUidNotification() {
+        return request.auth != null
+          && (resource.data.userUid == request.auth.uid || resource.data.user_id == request.auth.uid);
+      }
+      allow read: if ownsUidNotification() || ownsDashboardNotification();
+      allow create, delete: if false;
+      allow update: if (ownsUidNotification() || ownsDashboardNotification())
+        && (
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(["isRead"]) ||
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(["read"]) ||
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(["read", "isRead"])
+        );
+    }
+  }
+}
