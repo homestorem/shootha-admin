@@ -14,7 +14,8 @@ import {
   Platform,
   UIManager,
   Pressable,
-  Alert
+  Alert,
+  Keyboard
 } from "react-native";
 import Animated, { FadeInDown } from "react-native-reanimated";
 import { useFocusEffect, useNavigation, useRoute } from "@react-navigation/native";
@@ -24,12 +25,15 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { MainAppStackParamList, MainTabParamList } from "../navigation/AppNavigator";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import dayjs from "../lib/dayjs";
+import { classifyBookingDayTab } from "../lib/firestoreBookingDate";
 import Toast from "react-native-toast-message";
 import { BookingCard, Booking } from "../components/BookingCard";
 import { ScreenShell } from "../components/ScreenShell";
+import { InputLayer } from "../components/InputLayer";
 import { EmptyState } from "../components/EmptyState";
-import { BookingSkeletonList } from "../components/BookingSkeleton";
+import { CenteredLoading } from "../components/ui/CenteredLoading";
 import { t } from "../strings";
+import { formatNumberEn } from "../lib/numberFormat";
 import { isBackendSyncEnabled } from "../lib/backendFlags";
 import { isFirebaseConfigured } from "../config/firebaseConfig";
 import {
@@ -45,10 +49,12 @@ import {
   type BookingDurationMinutesOption,
   BOOKING_DURATION_MINUTES_OPTIONS
 } from "../lib/bookingsApi";
+import { isAttendanceWindowOpen, type AttendanceStatus } from "../lib/bookingAttendance";
 import {
   deleteOwnerBookingDoc,
   fetchOwnerBookingsForUid,
   insertOwnerBooking,
+  setOwnerBookingAttendance,
   updateOwnerBookingDoc,
   updateOwnerBookingStatusFirestore,
   type OwnerBookingDoc
@@ -59,6 +65,7 @@ import {
   fetchVenueBookingsForOwner,
   normalizeHm,
   parseVenueBookingUiId,
+  setVenueBookingAttendance,
   SYNC_SOURCE_OWNER_APP,
   updateVenueBookingDoc,
   updateVenueBookingStatus,
@@ -70,11 +77,20 @@ import { wrapFieldRequestError } from "../lib/fieldRequests";
 import { submitFieldRequest } from "../services/fieldRequestService";
 import { deriveOwnerIdFromUid } from "../lib/ownerId";
 import { useAuth } from "../providers/AuthProvider";
-import { BRAND } from "../theme/brand";
-import { colors } from "../theme/colors";
-import { radius, spacing, cardElevation } from "../theme/tokens";
+import { useSettings } from "../providers/SettingsProvider";
+import { processDueWalletSettlements, scheduleBookingWalletCharge } from "../services/walletStore";
+import { radius, spacing } from "../theme/tokens";
+import { makeBookingsStyles } from "./bookingsScreenStyles";
 import { FieldRequestBottomSheet } from "../components/FieldRequestBottomSheet";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { BookingPaymentMethodChips } from "../components/BookingPaymentMethodChips";
+import {
+  type BookingPaymentMethodKey,
+  isBookingPaymentKey
+} from "../lib/bookingPaymentMethod";
+import { rtl } from "../utils/rtl";
+import { HomeDashboardHero } from "../components/home/HomeDashboardHero";
 
 if (Platform.OS === "android" && UIManager.setLayoutAnimationEnabledExperimental) {
   UIManager.setLayoutAnimationEnabledExperimental(true);
@@ -125,7 +141,9 @@ function mapFsDocToBooking(b: OwnerBookingDoc): Booking {
     services_summary: b.services?.length ? b.services.join("، ") : null,
     booking_kind: "owner",
     settled: Boolean(b.isSettled),
-    player_user_id: b.playerUserId ?? null
+    player_user_id: b.playerUserId ?? null,
+    payment_method: b.paymentMethod ?? null,
+    attendance_status: b.attendanceStatus
   };
 }
 
@@ -150,7 +168,9 @@ function mapVenueToBooking(d: VenueBookingDoc): Booking {
     payment_method: d.paymentMethod ?? null,
     phone: d.phone ?? null,
     settled: Boolean(d.isSettled),
-    player_user_id: d.playerUserId ?? null
+    player_user_id: d.playerUserId ?? null,
+    services_summary: d.servicesSummary ?? null,
+    attendance_status: d.attendanceStatus
   };
 }
 
@@ -174,38 +194,60 @@ function canOfferPostMatch(b: Booking, firebaseMode: boolean): boolean {
   return bookingSlotEnded(b);
 }
 
+function canRecordAttendance(b: Booking, firebaseMode: boolean): boolean {
+  if (!firebaseMode) return false;
+  if (b.settled) return false;
+  return b.status === "approved" || b.status === "confirmed";
+}
+
+function canShowAttendanceControls(b: Booking, firebaseMode: boolean): boolean {
+  return canRecordAttendance(b, firebaseMode) && isAttendanceWindowOpen(b);
+}
+
 type TabKey = "today" | "upcoming" | "past";
 
 function tabKeyForBookingDate(dateStr: string): TabKey {
-  const d0 = dayjs().startOf("day");
-  const d = dayjs(dateStr).startOf("day");
-  if (d.isSame(d0, "day")) return "today";
-  if (d.isAfter(d0, "day")) return "upcoming";
-  return "past";
+  const tab = classifyBookingDayTab(dateStr);
+  if (tab === "unknown") return "past";
+  return tab;
 }
 
 export const BookingsScreen: React.FC = () => {
+  const { palette, tr } = useSettings();
+  const insets = useSafeAreaInsets();
+  const styles = useMemo(() => makeBookingsStyles(palette), [palette]);
+  const bookingModalScrollPad = useMemo(
+    () => [styles.bookingModalScrollContent, { paddingBottom: spacing.xl + Math.max(insets.bottom, 8) }],
+    [styles.bookingModalScrollContent, insets.bottom]
+  );
   const queryClient = useQueryClient();
   const navigation = useNavigation<BottomTabNavigationProp<MainTabParamList>>();
   const route = useRoute<RouteProp<MainTabParamList, "Home">>();
   const listRef = useRef<FlatList<Booking>>(null);
   const [deepLinkTarget, setDeepLinkTarget] = useState<string | null>(null);
   const [highlightBookingId, setHighlightBookingId] = useState<string | null>(null);
+  const [detailsBooking, setDetailsBooking] = useState<Booking | null>(null);
   const stackNav = navigation.getParent() as NativeStackNavigationProp<MainAppStackParamList> | undefined;
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState<TabKey>("today");
+  /** لإعادة رسم البطاقات عند فتح نافذة تأكيد الحضور (قبل 15 دقيقة من الموعد) */
+  const [, setAttendanceClockTick] = useState(0);
   const [addModalVisible, setAddModalVisible] = useState(false);
+  const [addModalStep, setAddModalStep] = useState<"pickField" | "form">("pickField");
   const [fieldRequestVisible, setFieldRequestVisible] = useState(false);
   const [fieldRequestSubmitting, setFieldRequestSubmitting] = useState(false);
   const [reqPersonName, setReqPersonName] = useState("");
   const [reqFieldName, setReqFieldName] = useState("");
   const [reqCity, setReqCity] = useState("");
+  const [reqProvince, setReqProvince] = useState("");
+  const [reqFieldType, setReqFieldType] = useState("");
   const [reqNotes, setReqNotes] = useState("");
   const [reqPhone, setReqPhone] = useState("");
   const [newDate, setNewDate] = useState(dayjs().format("YYYY-MM-DD"));
   const [newStartTime, setNewStartTime] = useState("18:00");
   const [bookingDurationMinutes, setBookingDurationMinutes] = useState<BookingDurationMinutesOption>(60);
   const [newPrice, setNewPrice] = useState("100");
+  const [newBookingPaymentMethod, setNewBookingPaymentMethod] = useState<BookingPaymentMethodKey>("cash");
   const [selectedFieldId, setSelectedFieldId] = useState("");
   const [fsEditOpen, setFsEditOpen] = useState(false);
   const [fsEditDoc, setFsEditDoc] = useState<OwnerBookingDoc | null>(null);
@@ -216,6 +258,7 @@ export const BookingsScreen: React.FC = () => {
   const [fsEditServices, setFsEditServices] = useState("");
   const [fsEditSource, setFsEditSource] = useState<"manual" | "player">("manual");
   const [fsEditPlayer, setFsEditPlayer] = useState("");
+  const [fsEditPaymentMethod, setFsEditPaymentMethod] = useState<BookingPaymentMethodKey>("cash");
   const [vbEditOpen, setVbEditOpen] = useState(false);
   const [vbEditDoc, setVbEditDoc] = useState<VenueBookingDoc | null>(null);
   const [vbEditDate, setVbEditDate] = useState("");
@@ -244,13 +287,15 @@ export const BookingsScreen: React.FC = () => {
       ]);
       return { owner, venue };
     },
-    enabled: useFs
+    enabled: useFs,
+    staleTime: 60_000
   });
 
   const apiBookingsQuery = useQuery({
     queryKey: ["bookings", user?.id],
     queryFn: () => loadBookingsForUi(user!.id),
-    enabled: Boolean(user?.id && isBackendSyncEnabled && !useFs)
+    enabled: Boolean(user?.id && isBackendSyncEnabled && !useFs),
+    staleTime: 60_000
   });
 
   const bookingList = useMemo(() => {
@@ -280,21 +325,31 @@ export const BookingsScreen: React.FC = () => {
       const ownerPub = user!.ownerId ?? deriveOwnerIdFromUid(user!.id);
       return fetchMergedFieldsForUid(user!.id, ownerPub);
     },
-    enabled: useFs
+    enabled: useFs,
+    staleTime: 60_000
   });
 
   const apiFieldsQuery = useQuery({
     queryKey: ["fields", user?.id],
     queryFn: () => fetchFieldsForOwner(user!.id),
-    enabled: Boolean(user?.id && isBackendSyncEnabled && !useFs)
+    enabled: Boolean(user?.id && isBackendSyncEnabled && !useFs),
+    staleTime: 60_000
   });
 
   const fields = useFs
-    ? (fsFieldsQuery.data ?? []).map((f) => ({ id: f.id, name: f.name }))
-    : (apiFieldsQuery.data ?? []);
+    ? (fsFieldsQuery.data ?? []).map((f) => ({
+        id: f.id,
+        name: f.name,
+        location: (f.location ?? "").trim()
+      }))
+    : (apiFieldsQuery.data ?? []).map((f) => ({ ...f, location: "" }));
+
+  const fieldsListLoading = useFs ? fsFieldsQuery.isPending : apiFieldsQuery.isPending;
 
   useFocusEffect(
     useCallback(() => {
+      setAttendanceClockTick((n) => n + 1);
+      void processDueWalletSettlements();
       if (canSync) void refetch();
       if (useFs && user?.id) {
         void queryClient.invalidateQueries({ queryKey: ["ownerFields", user.id] });
@@ -304,10 +359,9 @@ export const BookingsScreen: React.FC = () => {
   );
 
   useEffect(() => {
-    if (fields.length && !selectedFieldId) {
-      setSelectedFieldId(fields[0].id);
-    }
-  }, [fields, selectedFieldId]);
+    const id = setInterval(() => setAttendanceClockTick((n) => n + 1), 30_000);
+    return () => clearInterval(id);
+  }, []);
 
   useEffect(() => {
     const p = route.params?.openBookingId?.trim();
@@ -372,8 +426,26 @@ export const BookingsScreen: React.FC = () => {
     }
   });
 
-  const insertMutation = useMutation({
-    mutationFn: (row: Parameters<typeof insertBooking>[0]) =>
+  const attendanceMutation = useMutation({
+    mutationFn: async (p: { id: string; status: AttendanceStatus }) => {
+      const vid = parseVenueBookingUiId(p.id);
+      if (vid) await setVenueBookingAttendance(vid, p.status);
+      else await setOwnerBookingAttendance(p.id, p.status);
+    },
+    onSuccess: () => {
+      const op = user?.ownerId ?? deriveOwnerIdFromUid(user?.id ?? "");
+      void queryClient.invalidateQueries({ queryKey: ["ownerBookings", user?.id] });
+      void queryClient.invalidateQueries({ queryKey: ["mergedBookings", user?.id] });
+      void queryClient.invalidateQueries({ queryKey: ["venueBookingsByOwner", op] });
+      Toast.show({ type: "success", text1: t.bookings.attendanceSaved });
+    },
+    onError: () => {
+      Toast.show({ type: "error", text1: t.bookings.attendanceError });
+    }
+  });
+
+  const insertMutation = useMutation<{ id: number | string }, Error, Parameters<typeof insertBooking>[0]>({
+    mutationFn: (row) =>
       useFs
         ? insertOwnerBooking({
             ownerUid: user!.id,
@@ -388,15 +460,28 @@ export const BookingsScreen: React.FC = () => {
             source: "manual",
             playerName: null,
             services: [],
-            ownerPublicId: user!.ownerId ?? deriveOwnerIdFromUid(user!.id)
+            ownerPublicId: user!.ownerId ?? deriveOwnerIdFromUid(user!.id),
+            paymentMethod: newBookingPaymentMethod
           })
         : insertBooking(row),
-    onSuccess: () => {
+    onSuccess: (result, variables) => {
       const op = user?.ownerId ?? deriveOwnerIdFromUid(user?.id ?? "");
+      void (async () => {
+        const endAtIso = dayjs(`${variables.date} ${variables.end_time}`, "YYYY-MM-DD HH:mm").toDate().toISOString();
+        await scheduleBookingWalletCharge({
+          amount: variables.total_price,
+          bookingRef: String(result.id),
+          endAtIso,
+          delayMinutes: 15,
+          note: `استقطاع تلقائي بعد انتهاء الحجز +15 دقيقة`
+        });
+      })();
       void queryClient.invalidateQueries({ queryKey: ["bookings", user?.id] });
       void queryClient.invalidateQueries({ queryKey: ["ownerBookings", user?.id] });
       void queryClient.invalidateQueries({ queryKey: ["mergedBookings", user?.id] });
       void queryClient.invalidateQueries({ queryKey: ["venueBookingsByOwner", op] });
+      setAddModalStep("pickField");
+      setSelectedFieldId("");
       setAddModalVisible(false);
       Toast.show({ type: "success", text1: t.bookings.bookingSaved });
     },
@@ -427,7 +512,8 @@ export const BookingsScreen: React.FC = () => {
           .map((s) => s.trim())
           .filter(Boolean),
         fieldName: fsEditDoc.fieldName,
-        status: fsEditDoc.status
+        status: fsEditDoc.status,
+        paymentMethod: fsEditPaymentMethod
       });
     },
     onSuccess: () => {
@@ -490,7 +576,30 @@ export const BookingsScreen: React.FC = () => {
     }
   });
 
+  const closeAddBookingModal = useCallback(() => {
+    if (insertMutation.isPending) return;
+    Keyboard.dismiss();
+    setAddModalStep("pickField");
+    setSelectedFieldId("");
+    setAddModalVisible(false);
+  }, [insertMutation.isPending]);
+
+  const closeFsEditModal = useCallback(() => {
+    if (fsUpdateMutation.isPending) return;
+    Keyboard.dismiss();
+    setFsEditOpen(false);
+    setFsEditDoc(null);
+  }, [fsUpdateMutation.isPending]);
+
+  const closeVbEditModal = useCallback(() => {
+    if (vbUpdateMutation.isPending) return;
+    Keyboard.dismiss();
+    setVbEditOpen(false);
+    setVbEditDoc(null);
+  }, [vbUpdateMutation.isPending]);
+
   const openBookingEdit = (bookingId: string) => {
+    Keyboard.dismiss();
     const vbId = parseVenueBookingUiId(bookingId);
     if (vbId) {
       const doc = (mergedBookingsQuery.data?.venue ?? []).find((b) => b.id === vbId);
@@ -521,18 +630,41 @@ export const BookingsScreen: React.FC = () => {
     setFsEditServices((doc.services ?? []).join("، "));
     setFsEditSource(doc.source);
     setFsEditPlayer(doc.playerName ?? "");
+    const pm = doc.paymentMethod?.trim();
+    setFsEditPaymentMethod(pm && isBookingPaymentKey(pm) ? pm : "cash");
     setFsEditOpen(true);
   };
 
   const filteredBookings = useMemo(() => {
-    const d0 = dayjs().startOf("day");
     return bookingList.filter((b) => {
-      const d = dayjs(b.date).startOf("day");
-      if (activeTab === "today") return d.isSame(d0, "day");
-      if (activeTab === "upcoming") return d.isAfter(d0, "day");
-      return d.isBefore(d0, "day");
+      const tab = classifyBookingDayTab(b.date);
+      const bucket = tab === "unknown" ? "past" : tab;
+      return bucket === activeTab;
     });
   }, [bookingList, activeTab]);
+
+  useEffect(() => {
+    if (!detailsBooking) return;
+    const fresh = bookingList.find((b) => b.id === detailsBooking.id);
+    if (!fresh) {
+      setDetailsBooking(null);
+      return;
+    }
+    setDetailsBooking(fresh);
+  }, [bookingList, detailsBooking]);
+
+  const bookingTabCounts = useMemo(() => {
+    let today = 0;
+    let upcoming = 0;
+    let past = 0;
+    for (const b of bookingList) {
+      const tab = classifyBookingDayTab(b.date);
+      if (tab === "today") today += 1;
+      else if (tab === "upcoming") upcoming += 1;
+      else past += 1;
+    }
+    return { today, upcoming, past };
+  }, [bookingList]);
 
   useEffect(() => {
     if (!deepLinkTarget) return;
@@ -545,7 +677,14 @@ export const BookingsScreen: React.FC = () => {
     Toast.show({ type: "success", text1: t.notifications.bookingOpenedFromNotification });
   }, [filteredBookings, deepLinkTarget]);
 
-  const showSkeleton = canSync && isPending;
+  const homeDisplayName = (user?.display_name?.trim() || tr("profile.guestName")).trim();
+  const homeWelcomeLine = tr("home.welcomeName", { name: homeDisplayName });
+  const sectionBookingsTitle =
+    activeTab === "today"
+      ? tr("home.sectionBookingsToday")
+      : activeTab === "past"
+        ? tr("home.sectionBookingsPast")
+        : tr("home.sectionBookingsUpcoming");
 
   const setTab = (k: TabKey) => {
     LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
@@ -554,6 +693,21 @@ export const BookingsScreen: React.FC = () => {
 
   const handleStatusChange = (id: string, status: "approved" | "rejected") => {
     updateStatusMutation.mutate({ id: useFs ? id : Number(id), status });
+  };
+
+  const statusLabel = (s: Booking["status"]): string => {
+    if (s === "approved") return tr("home.statusApproved");
+    if (s === "rejected") return tr("home.statusRejected");
+    if (s === "confirmed") return tr("home.statusConfirmed");
+    if (s === "cancelled") return tr("home.statusCancelled");
+    return tr("home.statusPending");
+  };
+
+  const canShowDetailsAttendance = (b: Booking | null): boolean => {
+    if (!b || !useFs || b.settled) return false;
+    if (b.status !== "approved" && b.status !== "confirmed") return false;
+    const start = dayjs(`${b.date}T${padHmForDayjs(b.start_time)}:00`);
+    return dayjs().isAfter(start.add(15, "minute"));
   };
 
   const handleAddBooking = () => {
@@ -590,6 +744,8 @@ export const BookingsScreen: React.FC = () => {
   const handleSubmitFieldRequest = async () => {
     const name = reqFieldName.trim();
     const location = reqCity.trim();
+    const province = reqProvince.trim();
+    const fieldType = reqFieldType.trim();
 
     if (!name) {
       Toast.show({ type: "error", text1: t.bookings.fieldRequestValidation });
@@ -597,6 +753,14 @@ export const BookingsScreen: React.FC = () => {
     }
     if (!location) {
       Toast.show({ type: "error", text1: t.bookings.fieldRequestValidationLocation });
+      return;
+    }
+    if (!province) {
+      Toast.show({ type: "error", text1: t.bookings.fieldRequestValidationProvince });
+      return;
+    }
+    if (!fieldType) {
+      Toast.show({ type: "error", text1: t.bookings.fieldRequestValidationFieldType });
       return;
     }
     if (!isFirebaseConfigured()) {
@@ -621,6 +785,8 @@ export const BookingsScreen: React.FC = () => {
       const result = await submitFieldRequest({
         fieldName: name,
         location,
+        province,
+        fieldType,
         notes: reqNotes.trim() || undefined,
         ownerId,
         ownerAccountId: ownerId,
@@ -632,6 +798,8 @@ export const BookingsScreen: React.FC = () => {
       setReqPersonName("");
       setReqFieldName("");
       setReqCity("");
+      setReqProvince("");
+      setReqFieldType("");
       setReqNotes("");
       setReqPhone("");
       Toast.show({
@@ -649,6 +817,10 @@ export const BookingsScreen: React.FC = () => {
         const key = msg.replace("VALIDATION:", "");
         if (key === "location") {
           Toast.show({ type: "error", text1: t.bookings.fieldRequestValidationLocation });
+        } else if (key === "province") {
+          Toast.show({ type: "error", text1: t.bookings.fieldRequestValidationProvince });
+        } else if (key === "fieldType") {
+          Toast.show({ type: "error", text1: t.bookings.fieldRequestValidationFieldType });
         } else if (key === "ownerName") {
           Toast.show({ type: "error", text1: t.bookings.fieldRequestProfileIncomplete });
         } else if (key === "fieldName") {
@@ -677,17 +849,28 @@ export const BookingsScreen: React.FC = () => {
       Toast.show({ type: "info", text1: t.bookings.needBackendBookings });
       return;
     }
+    if (useFs) {
+      void queryClient.invalidateQueries({ queryKey: ["ownerFields", user!.id] });
+    } else {
+      void queryClient.invalidateQueries({ queryKey: ["fields", user!.id] });
+    }
+    setAddModalStep("pickField");
+    setSelectedFieldId("");
     setBookingDurationMinutes(60);
+    setNewBookingPaymentMethod("cash");
     setAddModalVisible(true);
   };
 
   const renderListEmpty = () => {
+    if (canSync && isPending && !isError) {
+      return <CenteredLoading color={palette.primary} minHeight={280} />;
+    }
     if (canSync && isError) {
       return (
         <EmptyState
           icon="alert-circle-outline"
-          title={t.bookings.emptyStateLoadTitle}
-          subtitle={t.bookings.loadErrorBookings}
+          title={tr("home.emptyStateLoadTitle")}
+          subtitle={tr("home.loadErrorBookings")}
         />
       );
     }
@@ -695,8 +878,8 @@ export const BookingsScreen: React.FC = () => {
       return (
         <EmptyState
           icon="settings-outline"
-          title={t.bookings.emptyStateBackendTitle}
-          subtitle={t.bookings.needBackendBookings}
+          title={tr("home.emptyStateBackendTitle")}
+          subtitle={tr("home.needBackendBookings")}
         />
       );
     }
@@ -704,134 +887,117 @@ export const BookingsScreen: React.FC = () => {
       return (
         <EmptyState
           icon="lock-closed-outline"
-          title={t.bookings.emptyTitle}
-          subtitle={t.bookings.loginRequiredBookings}
+          title={tr("home.emptyTitle")}
+          subtitle={tr("home.loginRequiredBookings")}
         />
       );
     }
-    return <EmptyState icon="calendar-outline" title={t.bookings.emptyTitle} subtitle={t.bookings.emptySubtitle} />;
+    return (
+      <View style={styles.homeEmptyCard}>
+        <Ionicons name="football-outline" size={40} color={palette.primary} />
+        <Text style={styles.homeEmptyTitle}>{tr("home.emptyTitle")}</Text>
+        <Text style={styles.homeEmptySubtitle}>{tr("home.emptySubtitle")}</Text>
+      </View>
+    );
   };
+
+  const listShellStyle = styles.listInsetHome;
 
   return (
     <>
-      <ScreenShell>
+      <ScreenShell fullBleed bleedTop>
         <View style={styles.root}>
-          <View style={styles.headerBlock}>
-            <View style={styles.headerRow}>
-              <View style={styles.titleBlock}>
-                <Text style={styles.brandEn}>{BRAND.name}</Text>
-                <Text style={styles.screenTitle}>{t.tabs.home}</Text>
-                <Text style={styles.screenSub}>{t.bookings.screenSubtitle}</Text>
-              </View>
-              <Pressable style={({ pressed }) => [styles.addButton, pressed && styles.headerBtnPressed]} onPress={openAddModal}>
-                <Text style={styles.addButtonText}>{t.bookings.addBooking}</Text>
-              </Pressable>
-            </View>
+          <HomeDashboardHero
+            paddingTop={insets.top}
+            welcomeNameLine={homeWelcomeLine}
+            welcomeSub={tr("home.welcomeSub")}
+            addBookingLabel={tr("home.addBookingCta")}
+            addBookingSub={tr("home.addBookingCtaSub")}
+            fieldRequestTitle={tr("home.requestAddField")}
+            fieldRequestSub={tr("home.fieldRequestSheetSubtitle")}
+            todayLabel={tr("home.today")}
+            pastLabel={tr("home.past")}
+            upcomingLabel={tr("home.upcoming")}
+            counts={{
+              today: bookingTabCounts.today,
+              past: bookingTabCounts.past,
+              upcoming: bookingTabCounts.upcoming
+            }}
+            activeTab={activeTab}
+            onTab={setTab}
+            onAddBooking={openAddModal}
+            onFieldRequest={() => setFieldRequestVisible(true)}
+          />
 
-            <Pressable
-              style={({ pressed }) => [styles.requestFieldButton, pressed && styles.requestFieldPressed]}
-              onPress={() => setFieldRequestVisible(true)}
-            >
-              <View style={styles.requestFieldInner}>
-                <View style={styles.requestFieldIconWrap}>
-                  <Ionicons name="add-circle" size={22} color={colors.primary} />
-                </View>
-                <View style={styles.requestFieldTextCol}>
-                  <Text style={styles.requestFieldButtonTitle}>{t.bookings.requestAddField}</Text>
-                  <Text style={styles.requestFieldButtonSub}>{t.bookings.fieldRequestSheetSubtitle}</Text>
-                </View>
-                <Ionicons name="chevron-back" size={20} color={colors.textSubtle} />
-              </View>
-            </Pressable>
-
-            <Pressable
-              style={({ pressed }) => [styles.scheduleCard, pressed && styles.headerBtnPressed]}
-              onPress={() => navigation.navigate("Schedule")}
-            >
-              <View style={styles.scheduleIcon}>
-                <Ionicons name="time" size={22} color={colors.primaryDark} />
-              </View>
-              <View style={styles.scheduleTextCol}>
-                <Text style={styles.scheduleTitle}>{t.bookings.scheduleInlineTitle}</Text>
-                <Text style={styles.scheduleSub}>{t.schedule.title}</Text>
-              </View>
-              <Text style={styles.scheduleLink}>{t.bookings.scheduleInlineOpen}</Text>
-            </Pressable>
-          </View>
-
-          <View style={styles.tabsRow}>
-            <TabButton label={t.bookings.today} active={activeTab === "today"} onPress={() => setTab("today")} />
-            <TabButton
-              label={t.bookings.upcoming}
-              active={activeTab === "upcoming"}
-              onPress={() => setTab("upcoming")}
-            />
-            <TabButton label={t.bookings.past} active={activeTab === "past"} onPress={() => setTab("past")} />
-          </View>
-
-          {showSkeleton ? (
-            <View style={styles.listArea}>
-              <BookingSkeletonList />
-            </View>
-          ) : (
-            <FlatList
-              ref={listRef}
-              style={styles.listArea}
-              data={filteredBookings}
-              keyExtractor={(item) => item.id}
-              onScrollToIndexFailed={({ index }) => {
-                requestAnimationFrame(() => {
-                  listRef.current?.scrollToIndex({ index, viewPosition: 0.12, animated: true });
-                });
-              }}
-              renderItem={({ item, index }) => (
-                <Animated.View entering={FadeInDown.duration(320).delay(Math.min(index, 10) * 42).springify()}>
-                  <BookingCard
-                    highlighted={item.id === highlightBookingId}
-                    booking={item}
-                    onApprove={() => handleStatusChange(item.id, "approved")}
-                    onReject={() => handleStatusChange(item.id, "rejected")}
-                    onEdit={useFs ? () => openBookingEdit(item.id) : undefined}
-                    onPostMatch={
-                      canOfferPostMatch(item, useFs)
-                        ? () => {
-                            const vid = parseVenueBookingUiId(item.id);
-                            stackNav?.navigate("PostMatch", vid
-                              ? { mode: "venue", venueBookingId: vid }
-                              : { mode: "owner", ownerBookingId: item.id });
-                          }
-                        : undefined
-                    }
-                    onDelete={
-                      useFs
-                        ? () =>
-                            Alert.alert(t.fields.confirmDeleteTitle, t.fields.confirmDeleteBody, [
-                              { text: t.common.cancel, style: "cancel" },
-                              {
-                                text: t.fields.deleteBooking,
-                                style: "destructive",
-                                onPress: () => fsDeleteMutation.mutate(item.id)
-                              }
-                            ])
-                        : undefined
-                    }
-                  />
-                </Animated.View>
-              )}
-              contentContainerStyle={
-                filteredBookings.length === 0 ? styles.listEmptyGrow : styles.listContent
-              }
-              ListEmptyComponent={renderListEmpty}
-              refreshControl={
-                <RefreshControl
-                  refreshing={isRefetching && !isPending}
-                  onRefresh={() => void refetch()}
-                  tintColor={colors.primary}
+          <FlatList
+            ref={listRef}
+            style={listShellStyle}
+            data={filteredBookings}
+            keyExtractor={(item) => item.id}
+            onScrollToIndexFailed={({ index }) => {
+              requestAnimationFrame(() => {
+                listRef.current?.scrollToIndex({ index, viewPosition: 0.12, animated: true });
+              });
+            }}
+            ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
+            renderItem={({ item, index }) => (
+              <Animated.View entering={FadeInDown.duration(320).delay(Math.min(index, 10) * 42).springify()}>
+                <BookingCard
+                  compact
+                  onOpenDetails={() => setDetailsBooking(item)}
+                  highlighted={item.id === highlightBookingId}
+                  booking={item}
+                  onApprove={() => handleStatusChange(item.id, "approved")}
+                  onReject={() => handleStatusChange(item.id, "rejected")}
+                  onSetAttendance={
+                    canShowAttendanceControls(item, useFs)
+                      ? (status) => attendanceMutation.mutate({ id: item.id, status })
+                      : undefined
+                  }
+                  attendanceBusy={
+                    attendanceMutation.isPending && attendanceMutation.variables?.id === item.id
+                  }
+                  onEdit={useFs ? () => openBookingEdit(item.id) : undefined}
+                  onPostMatch={
+                    canOfferPostMatch(item, useFs)
+                      ? () => {
+                          const vid = parseVenueBookingUiId(item.id);
+                          stackNav?.navigate("PostMatch", vid
+                            ? { mode: "venue", venueBookingId: vid }
+                            : { mode: "owner", ownerBookingId: item.id });
+                        }
+                      : undefined
+                  }
+                  onDelete={
+                    useFs
+                      ? () =>
+                          Alert.alert(t.fields.confirmDeleteTitle, t.fields.confirmDeleteBody, [
+                            { text: t.common.cancel, style: "cancel" },
+                            {
+                              text: t.fields.deleteBooking,
+                              style: "destructive",
+                              onPress: () => fsDeleteMutation.mutate(item.id)
+                            }
+                          ])
+                      : undefined
+                  }
                 />
-              }
-              showsVerticalScrollIndicator={false}
-            />
-          )}
+              </Animated.View>
+            )}
+            contentContainerStyle={
+              filteredBookings.length === 0 ? styles.listEmptyGrow : styles.listContent
+            }
+            ListHeaderComponent={<Text style={styles.listSectionTitle}>{sectionBookingsTitle}</Text>}
+            ListEmptyComponent={renderListEmpty}
+            refreshControl={
+              <RefreshControl
+                refreshing={isRefetching && !isPending}
+                onRefresh={() => void refetch()}
+                tintColor={palette.primary}
+              />
+            }
+            showsVerticalScrollIndicator={false}
+          />
         </View>
       </ScreenShell>
 
@@ -846,6 +1012,10 @@ export const BookingsScreen: React.FC = () => {
         setReqFieldName={setReqFieldName}
         reqCity={reqCity}
         setReqCity={setReqCity}
+        reqProvince={reqProvince}
+        setReqProvince={setReqProvince}
+        reqFieldType={reqFieldType}
+        setReqFieldType={setReqFieldType}
         reqNotes={reqNotes}
         setReqNotes={setReqNotes}
         reqPhone={reqPhone}
@@ -854,111 +1024,342 @@ export const BookingsScreen: React.FC = () => {
         onSubmit={handleSubmitFieldRequest}
       />
 
-      <Modal visible={addModalVisible} transparent animationType="slide">
+      <Modal
+        visible={Boolean(detailsBooking)}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setDetailsBooking(null)}
+      >
         <View style={styles.modalBackdrop}>
-          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.addModalScroll}>
+          <ScrollView
+            style={styles.modalSheetScroll}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            contentContainerStyle={bookingModalScrollPad}
+          >
             <View style={styles.modalCard}>
-              <Text style={styles.modalTitle}>{t.bookings.addBooking}</Text>
-              <Text style={styles.inputLabel}>{t.bookings.selectField}</Text>
-              {fields.length === 0 ? (
-                <Text style={styles.warnText}>{t.bookings.noFieldsHint}</Text>
-              ) : (
-                <View style={styles.fieldChips}>
-                  {fields.map((f) => (
-                    <TouchableOpacity
-                      key={f.id}
-                      style={[styles.fieldChip, selectedFieldId === f.id && styles.fieldChipActive]}
-                      onPress={() => setSelectedFieldId(f.id)}
-                    >
-                      <Text style={[styles.fieldChipText, selectedFieldId === f.id && styles.fieldChipTextActive]}>
-                        {f.name}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
-                </View>
-              )}
-              <Text style={styles.inputLabel}>{t.bookings.dateLabel}</Text>
-              <TextInput
-                style={styles.input}
-                placeholder={t.bookings.datePlaceholder}
-                value={newDate}
-                textAlign="right"
-                onChangeText={setNewDate}
-              />
-              <Text style={styles.inputLabel}>{t.bookings.startTimeLabel}</Text>
-              <TextInput
-                style={styles.input}
-                placeholder={t.bookings.timePlaceholder}
-                value={newStartTime}
-                textAlign="right"
-                onChangeText={setNewStartTime}
-              />
-              <Text style={styles.inputLabel}>{t.bookings.durationMinutesLabel}</Text>
-              <View style={styles.durationChips}>
-                {BOOKING_DURATION_MINUTES_OPTIONS.map((mins) => (
-                  <TouchableOpacity
-                    key={mins}
-                    style={[styles.durationChip, bookingDurationMinutes === mins && styles.durationChipActive]}
-                    onPress={() => setBookingDurationMinutes(mins)}
+              <InputLayer>
+                <View style={styles.modalHeaderRow}>
+                  <Pressable
+                    onPress={() => setDetailsBooking(null)}
+                    style={({ pressed }) => [styles.modalCloseBtn, pressed && styles.headerBtnPressed]}
                   >
-                    <Text
-                      style={[
-                        styles.durationChipTitle,
-                        bookingDurationMinutes === mins && styles.durationChipTitleActive
-                      ]}
-                    >
-                      {mins === 60 ? t.bookings.durationOneHour : t.bookings.durationOneHalfHour}
+                    <Ionicons name="close" size={26} color={palette.text} />
+                  </Pressable>
+                  <Text style={styles.modalTitleInHeader}>تفاصيل الحجز</Text>
+                  <View style={styles.modalHeaderSpacer} />
+                </View>
+
+                {detailsBooking ? (
+                  <>
+                    <Text style={styles.inputLabel}>اسم الحاجز</Text>
+                    <Text style={styles.input}>{detailsBooking.player_name || t.bookings.noPlayerName}</Text>
+                    {detailsBooking.phone ? (
+                      <>
+                        <Text style={styles.inputLabel}>{t.bookings.playerPhoneLabel}</Text>
+                        <Text style={styles.input}>{detailsBooking.phone}</Text>
+                      </>
+                    ) : null}
+                    <Text style={styles.inputLabel}>{t.bookings.fieldLabel}</Text>
+                    <Text style={styles.input}>{detailsBooking.field_name || "—"}</Text>
+                    <Text style={styles.inputLabel}>{t.bookings.dateLabel}</Text>
+                    <Text style={styles.input}>{detailsBooking.date}</Text>
+                    <Text style={styles.inputLabel}>{t.bookings.startTimeLabel}</Text>
+                    <Text style={styles.input}>{detailsBooking.start_time}</Text>
+                    <Text style={styles.inputLabel}>إلى</Text>
+                    <Text style={styles.input}>{detailsBooking.end_time}</Text>
+                    <Text style={styles.inputLabel}>{t.bookings.durationLabel}</Text>
+                    <Text style={styles.input}>{detailsBooking.duration_label || "—"}</Text>
+                    <Text style={styles.inputLabel}>{t.bookings.bookingStatusLabel}</Text>
+                    <Text style={styles.input}>{statusLabel(detailsBooking.status)}</Text>
+                    <Text style={styles.inputLabel}>{t.bookings.totalPriceLabel}</Text>
+                    <Text style={styles.input}>
+                      {detailsBooking.total_price != null
+                        ? `${formatNumberEn(Number(detailsBooking.total_price))} ${t.bookings.currencyShort}`
+                        : "—"}
                     </Text>
-                    <Text
-                      style={[
-                        styles.durationChipSub,
-                        bookingDurationMinutes === mins && styles.durationChipSubActive
-                      ]}
-                    >
-                      {mins === 60 ? t.bookings.durationOneHourSub : t.bookings.durationOneHalfHourSub}
+                    <Text style={styles.inputLabel}>{t.bookings.playerRequestedServicesLabel}</Text>
+                    <Text style={styles.input}>
+                      {detailsBooking.services_summary?.trim() || t.bookings.servicesNotSpecified}
                     </Text>
-                  </TouchableOpacity>
-                ))}
-              </View>
-              <Text style={styles.inputLabel}>{t.bookings.priceLabel}</Text>
-              <TextInput
-                style={styles.input}
-                placeholder={t.bookings.pricePlaceholder}
-                value={newPrice}
-                keyboardType="decimal-pad"
-                textAlign="right"
-                onChangeText={setNewPrice}
-              />
-              <View style={styles.modalActions}>
-                <TouchableOpacity
-                  style={[styles.modalButton, styles.modalCancel]}
-                  onPress={() => setAddModalVisible(false)}
-                  disabled={insertMutation.isPending}
-                >
-                  <Text style={styles.modalCancelText}>{t.bookings.modalCancel}</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.modalButton, styles.modalPrimary]}
-                  onPress={handleAddBooking}
-                  disabled={insertMutation.isPending || !fields.length}
-                >
-                  {insertMutation.isPending ? (
-                    <ActivityIndicator color="#fff" />
-                  ) : (
-                    <Text style={styles.modalPrimaryText}>{t.bookings.modalSave}</Text>
-                  )}
-                </TouchableOpacity>
-              </View>
+                    {detailsBooking.payment_method ? (
+                      <>
+                        <Text style={styles.inputLabel}>{t.bookings.paymentMethodLabel}</Text>
+                        <Text style={styles.input}>{detailsBooking.payment_method}</Text>
+                      </>
+                    ) : null}
+                    <View style={styles.modalActions}>
+                      {(detailsBooking.status === "pending" || detailsBooking.status === "rejected") && (
+                        <TouchableOpacity
+                          style={[styles.modalButton, styles.modalPrimary]}
+                          onPress={() => handleStatusChange(detailsBooking.id, "approved")}
+                        >
+                          <Text style={styles.modalPrimaryText}>{t.bookings.approve}</Text>
+                        </TouchableOpacity>
+                      )}
+                      {detailsBooking.status !== "rejected" && detailsBooking.status !== "cancelled" && (
+                        <TouchableOpacity
+                          style={[styles.modalButton, styles.modalCancel]}
+                          onPress={() => handleStatusChange(detailsBooking.id, "rejected")}
+                        >
+                          <Text style={styles.modalCancelText}>{t.bookings.reject}</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                    {canShowDetailsAttendance(detailsBooking) ? (
+                      <View style={styles.modalActions}>
+                        <TouchableOpacity
+                          style={[styles.modalButton, styles.modalPrimary]}
+                          onPress={() =>
+                            attendanceMutation.mutate({ id: detailsBooking.id, status: "attended" })
+                          }
+                        >
+                          <Text style={styles.modalPrimaryText}>{t.bookings.attendanceAttended}</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[styles.modalButton, styles.modalCancel]}
+                          onPress={() =>
+                            attendanceMutation.mutate({ id: detailsBooking.id, status: "no_show" })
+                          }
+                        >
+                          <Text style={styles.modalCancelText}>{t.bookings.attendanceNoShow}</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ) : null}
+                    <View style={styles.modalActions}>
+                      <TouchableOpacity
+                        style={[styles.modalButton, styles.modalPrimary]}
+                        onPress={() => {
+                          setDetailsBooking(null);
+                          openBookingEdit(detailsBooking.id);
+                        }}
+                      >
+                        <Text style={styles.modalPrimaryText}>{t.bookings.editBookingShort}</Text>
+                      </TouchableOpacity>
+                      {useFs ? (
+                        <TouchableOpacity
+                          style={[styles.modalButton, { backgroundColor: palette.danger }]}
+                          onPress={() => fsDeleteMutation.mutate(detailsBooking.id)}
+                        >
+                          <Text style={styles.modalPrimaryText}>{t.bookings.deleteBookingShort}</Text>
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
+                  </>
+                ) : null}
+              </InputLayer>
             </View>
           </ScrollView>
         </View>
       </Modal>
 
-      <Modal visible={vbEditOpen} transparent animationType="slide">
+      <Modal
+        visible={addModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={closeAddBookingModal}
+      >
         <View style={styles.modalBackdrop}>
-          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.addModalScroll}>
+          <ScrollView
+            style={styles.modalSheetScroll}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            showsVerticalScrollIndicator
+            contentContainerStyle={bookingModalScrollPad}
+          >
             <View style={styles.modalCard}>
-              <Text style={styles.modalTitle}>{t.fields.editBooking}</Text>
+              <InputLayer>
+              <View style={styles.modalHeaderRow}>
+                <Pressable
+                  onPress={closeAddBookingModal}
+                  style={({ pressed }) => [styles.modalCloseBtn, pressed && styles.headerBtnPressed]}
+                  accessibilityRole="button"
+                  accessibilityLabel={t.bookings.modalCloseA11y}
+                >
+                  <Ionicons name="close" size={26} color={palette.text} />
+                </Pressable>
+                <Text style={styles.modalTitleInHeader}>
+                  {addModalStep === "pickField" ? t.bookings.selectField : t.bookings.addBooking}
+                </Text>
+                <View style={styles.modalHeaderSpacer} />
+              </View>
+              {addModalStep === "pickField" ? (
+                <>
+                  <Text style={styles.addedFieldsSectionTitle}>{t.bookings.addedFieldsList}</Text>
+                  {fieldsListLoading && fields.length === 0 ? (
+                    <View style={{ paddingVertical: spacing.xl, alignItems: "center" }}>
+                      <ActivityIndicator size="large" color={palette.primary} />
+                    </View>
+                  ) : fields.length === 0 ? (
+                    <Text style={styles.warnText}>{t.bookings.noFieldsHint}</Text>
+                  ) : (
+                    fields.map((f) => (
+                      <Pressable
+                        key={f.id}
+                        onPress={() => {
+                          closeAddBookingModal();
+                          stackNav?.navigate("FieldManage", { fieldId: f.id, fieldName: f.name });
+                        }}
+                        style={({ pressed }) => [styles.fieldListRow, pressed && styles.fieldListRowPressed]}
+                      >
+                        <View style={styles.fieldListTextCol}>
+                          <Text style={styles.fieldListName} numberOfLines={2}>
+                            {f.name}
+                          </Text>
+                          {f.location ? (
+                            <Text style={styles.fieldListLoc} numberOfLines={1}>
+                              {f.location}
+                            </Text>
+                          ) : null}
+                        </View>
+                        <Ionicons name={rtl.chevronForward} size={22} color={palette.textMuted} />
+                      </Pressable>
+                    ))
+                  )}
+                  <View style={styles.modalActions}>
+                    <TouchableOpacity
+                      style={[styles.modalButton, styles.modalCancel, { flex: 1 }]}
+                      onPress={closeAddBookingModal}
+                    >
+                      <Text style={styles.modalCancelText}>{t.bookings.modalCancel}</Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              ) : (
+                <>
+                  <View style={styles.selectedFieldBar}>
+                    <View style={styles.selectedFieldBarText}>
+                      <Text style={styles.selectedFieldLabel}>{t.bookings.selectedFieldShort}</Text>
+                      <Text style={styles.selectedFieldName} numberOfLines={2}>
+                        {fields.find((x) => x.id === selectedFieldId)?.name ?? "—"}
+                      </Text>
+                    </View>
+                    <Pressable
+                      onPress={() => setAddModalStep("pickField")}
+                      style={({ pressed }) => [styles.changeFieldBtn, pressed && { opacity: 0.75 }]}
+                    >
+                      <Text style={styles.changeFieldBtnText}>{t.bookings.changeField}</Text>
+                    </Pressable>
+                  </View>
+                  <Text style={styles.inputLabel}>{t.bookings.dateLabel}</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder={t.bookings.datePlaceholder}
+                    value={newDate}
+                    textAlign="right"
+                    onChangeText={setNewDate}
+                  />
+                  <Text style={styles.inputLabel}>{t.bookings.startTimeLabel}</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder={t.bookings.timePlaceholder}
+                    value={newStartTime}
+                    textAlign="right"
+                    onChangeText={setNewStartTime}
+                  />
+                  <Text style={styles.inputLabel}>{t.bookings.durationMinutesLabel}</Text>
+                  <View style={styles.durationChips}>
+                    {BOOKING_DURATION_MINUTES_OPTIONS.map((mins) => (
+                      <TouchableOpacity
+                        key={mins}
+                        style={[styles.durationChip, bookingDurationMinutes === mins && styles.durationChipActive]}
+                        onPress={() => setBookingDurationMinutes(mins)}
+                      >
+                        <Text
+                          style={[
+                            styles.durationChipTitle,
+                            bookingDurationMinutes === mins && styles.durationChipTitleActive
+                          ]}
+                        >
+                          {mins === 60 ? t.bookings.durationOneHour : t.bookings.durationOneHalfHour}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.durationChipSub,
+                            bookingDurationMinutes === mins && styles.durationChipSubActive
+                          ]}
+                        >
+                          {mins === 60 ? t.bookings.durationOneHourSub : t.bookings.durationOneHalfHourSub}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                  <Text style={styles.inputLabel}>{t.bookings.priceLabel}</Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder={t.bookings.pricePlaceholder}
+                    value={newPrice}
+                    keyboardType="decimal-pad"
+                    textAlign="right"
+                    onChangeText={setNewPrice}
+                  />
+                  <Text style={styles.inputLabel}>{t.bookings.paymentMethodLabel}</Text>
+                  <BookingPaymentMethodChips
+                    value={newBookingPaymentMethod}
+                    onChange={setNewBookingPaymentMethod}
+                    rowStyle={styles.durationChips}
+                    chipStyle={styles.durationChip}
+                    chipActiveStyle={styles.durationChipActive}
+                    textStyle={styles.durationChipTitle}
+                    textActiveStyle={styles.durationChipTitleActive}
+                  />
+                  <View style={styles.modalActions}>
+                    <TouchableOpacity
+                      style={[styles.modalButton, styles.modalCancel]}
+                      onPress={closeAddBookingModal}
+                    >
+                      <Text style={styles.modalCancelText}>{t.bookings.modalCancel}</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.modalButton, styles.modalPrimary]}
+                      onPress={() => {
+                        if (insertMutation.isPending || !selectedFieldId) return;
+                        handleAddBooking();
+                      }}
+                    >
+                      {insertMutation.isPending ? (
+                        <ActivityIndicator color="#fff" />
+                      ) : (
+                        <Text style={styles.modalPrimaryText}>{t.bookings.modalSave}</Text>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                </>
+              )}
+              </InputLayer>
+            </View>
+          </ScrollView>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={vbEditOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={closeVbEditModal}
+      >
+        <View style={styles.modalBackdrop}>
+          <ScrollView
+            style={styles.modalSheetScroll}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            showsVerticalScrollIndicator
+            contentContainerStyle={bookingModalScrollPad}
+          >
+            <View style={styles.modalCard}>
+              <InputLayer>
+              <View style={styles.modalHeaderRow}>
+                <Pressable
+                  onPress={closeVbEditModal}
+                  style={({ pressed }) => [styles.modalCloseBtn, pressed && styles.headerBtnPressed]}
+                  accessibilityRole="button"
+                  accessibilityLabel={t.bookings.modalCloseA11y}
+                >
+                  <Ionicons name="close" size={26} color={palette.text} />
+                </Pressable>
+                <Text style={styles.modalTitleInHeader}>{t.fields.editBooking}</Text>
+                <View style={styles.modalHeaderSpacer} />
+              </View>
               <Text style={styles.inputLabel}>{t.bookings.venueNameLabel}</Text>
               <TextInput
                 style={styles.input}
@@ -1009,6 +1410,16 @@ export const BookingsScreen: React.FC = () => {
                 textAlign="right"
               />
               <Text style={styles.inputLabel}>{t.bookings.paymentMethodLabel}</Text>
+              <BookingPaymentMethodChips
+                value={vbEditPayment.trim()}
+                onChange={(k) => setVbEditPayment(k)}
+                rowStyle={styles.durationChips}
+                chipStyle={styles.durationChip}
+                chipActiveStyle={styles.durationChipActive}
+                textStyle={styles.durationChipTitle}
+                textActiveStyle={styles.durationChipTitleActive}
+              />
+              <Text style={[styles.warnText, { marginBottom: 6 }]}>{t.bookings.paymentMethodCustomHint}</Text>
               <TextInput
                 style={styles.input}
                 value={vbEditPayment}
@@ -1048,19 +1459,15 @@ export const BookingsScreen: React.FC = () => {
                 ))}
               </View>
               <View style={styles.modalActions}>
-                <TouchableOpacity
-                  style={[styles.modalButton, styles.modalCancel]}
-                  onPress={() => {
-                    setVbEditOpen(false);
-                    setVbEditDoc(null);
-                  }}
-                >
+                <TouchableOpacity style={[styles.modalButton, styles.modalCancel]} onPress={closeVbEditModal}>
                   <Text style={styles.modalCancelText}>{t.bookings.modalCancel}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.modalButton, styles.modalPrimary]}
-                  onPress={() => vbUpdateMutation.mutate()}
-                  disabled={vbUpdateMutation.isPending}
+                  onPress={() => {
+                    if (vbUpdateMutation.isPending) return;
+                    vbUpdateMutation.mutate();
+                  }}
                 >
                   {vbUpdateMutation.isPending ? (
                     <ActivityIndicator color="#fff" />
@@ -1069,16 +1476,40 @@ export const BookingsScreen: React.FC = () => {
                   )}
                 </TouchableOpacity>
               </View>
+              </InputLayer>
             </View>
           </ScrollView>
         </View>
       </Modal>
 
-      <Modal visible={fsEditOpen} transparent animationType="slide">
+      <Modal
+        visible={fsEditOpen}
+        transparent
+        animationType="slide"
+        onRequestClose={closeFsEditModal}
+      >
         <View style={styles.modalBackdrop}>
-          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.addModalScroll}>
+          <ScrollView
+            style={styles.modalSheetScroll}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            showsVerticalScrollIndicator
+            contentContainerStyle={bookingModalScrollPad}
+          >
             <View style={styles.modalCard}>
-              <Text style={styles.modalTitle}>{t.fields.editBooking}</Text>
+              <InputLayer>
+              <View style={styles.modalHeaderRow}>
+                <Pressable
+                  onPress={closeFsEditModal}
+                  style={({ pressed }) => [styles.modalCloseBtn, pressed && styles.headerBtnPressed]}
+                  accessibilityRole="button"
+                  accessibilityLabel={t.bookings.modalCloseA11y}
+                >
+                  <Ionicons name="close" size={26} color={palette.text} />
+                </Pressable>
+                <Text style={styles.modalTitleInHeader}>{t.fields.editBooking}</Text>
+                <View style={styles.modalHeaderSpacer} />
+              </View>
               <Text style={styles.inputLabel}>{t.fields.selectDate}</Text>
               <TextInput style={styles.input} value={fsEditDate} onChangeText={setFsEditDate} textAlign="right" />
               <Text style={styles.inputLabel}>{t.bookings.startTimeLabel}</Text>
@@ -1109,6 +1540,16 @@ export const BookingsScreen: React.FC = () => {
                 onChangeText={setFsEditPrice}
                 keyboardType="decimal-pad"
                 textAlign="right"
+              />
+              <Text style={styles.inputLabel}>{t.bookings.paymentMethodLabel}</Text>
+              <BookingPaymentMethodChips
+                value={fsEditPaymentMethod}
+                onChange={setFsEditPaymentMethod}
+                rowStyle={styles.durationChips}
+                chipStyle={styles.durationChip}
+                chipActiveStyle={styles.durationChipActive}
+                textStyle={styles.durationChipTitle}
+                textActiveStyle={styles.durationChipTitleActive}
               />
               <Text style={styles.inputLabel}>{t.fields.servicesLabel}</Text>
               <TextInput
@@ -1153,19 +1594,15 @@ export const BookingsScreen: React.FC = () => {
                 </>
               ) : null}
               <View style={styles.modalActions}>
-                <TouchableOpacity
-                  style={[styles.modalButton, styles.modalCancel]}
-                  onPress={() => {
-                    setFsEditOpen(false);
-                    setFsEditDoc(null);
-                  }}
-                >
+                <TouchableOpacity style={[styles.modalButton, styles.modalCancel]} onPress={closeFsEditModal}>
                   <Text style={styles.modalCancelText}>{t.bookings.modalCancel}</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.modalButton, styles.modalPrimary]}
-                  onPress={() => fsUpdateMutation.mutate()}
-                  disabled={fsUpdateMutation.isPending}
+                  onPress={() => {
+                    if (fsUpdateMutation.isPending) return;
+                    fsUpdateMutation.mutate();
+                  }}
                 >
                   {fsUpdateMutation.isPending ? (
                     <ActivityIndicator color="#fff" />
@@ -1174,6 +1611,7 @@ export const BookingsScreen: React.FC = () => {
                   )}
                 </TouchableOpacity>
               </View>
+              </InputLayer>
             </View>
           </ScrollView>
         </View>
@@ -1181,339 +1619,3 @@ export const BookingsScreen: React.FC = () => {
     </>
   );
 };
-
-const TabButton: React.FC<{ label: string; active: boolean; onPress: () => void }> = ({
-  label,
-  active,
-  onPress
-}) => (
-  <TouchableOpacity onPress={onPress} style={[styles.tabButton, active && styles.tabButtonActive]}>
-    <Text style={[styles.tabText, active && styles.tabTextActive]}>{label}</Text>
-  </TouchableOpacity>
-);
-
-const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    paddingTop: spacing.sm
-  },
-  headerBlock: {
-    marginBottom: spacing.md
-  },
-  headerRow: {
-    flexDirection: "row-reverse",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    marginBottom: spacing.md
-  },
-  titleBlock: {
-    flex: 1,
-    marginLeft: spacing.md
-  },
-  brandEn: {
-    fontSize: 11,
-    fontWeight: "800",
-    letterSpacing: 1.4,
-    color: colors.primary,
-    textAlign: "right",
-    marginBottom: 4
-  },
-  screenTitle: {
-    fontSize: 28,
-    fontWeight: "800",
-    color: colors.text,
-    textAlign: "right",
-    letterSpacing: -0.6
-  },
-  screenSub: {
-    marginTop: 4,
-    fontSize: 14,
-    color: colors.textMuted,
-    textAlign: "right",
-    lineHeight: 20,
-    fontWeight: "500"
-  },
-  addButton: {
-    backgroundColor: colors.primary,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: 11,
-    borderRadius: radius.full,
-    marginTop: 4,
-    shadowColor: colors.primaryDeep,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    elevation: 4
-  },
-  addButtonText: {
-    color: colors.textOnPrimary,
-    fontSize: 14,
-    fontWeight: "800"
-  },
-  headerBtnPressed: {
-    opacity: 0.9,
-    transform: [{ scale: 0.97 }]
-  },
-  requestFieldButton: {
-    borderRadius: radius.lg,
-    backgroundColor: colors.surfaceCard,
-    marginBottom: spacing.sm + 2,
-    ...cardElevation(true)
-  },
-  requestFieldPressed: {
-    opacity: 0.94,
-    transform: [{ scale: 0.995 }]
-  },
-  requestFieldInner: {
-    flexDirection: "row-reverse",
-    alignItems: "center",
-    paddingVertical: spacing.md + 2,
-    paddingHorizontal: spacing.lg,
-    gap: 12
-  },
-  requestFieldIconWrap: {
-    width: 48,
-    height: 48,
-    borderRadius: radius.md,
-    backgroundColor: colors.primaryMuted,
-    alignItems: "center",
-    justifyContent: "center"
-  },
-  requestFieldTextCol: {
-    flex: 1
-  },
-  requestFieldButtonTitle: {
-    color: colors.text,
-    fontSize: 16,
-    fontWeight: "800",
-    textAlign: "right",
-    marginBottom: 4
-  },
-  requestFieldButtonSub: {
-    color: colors.textMuted,
-    fontSize: 12,
-    textAlign: "right",
-    lineHeight: 18
-  },
-  scheduleCard: {
-    flexDirection: "row-reverse",
-    alignItems: "center",
-    backgroundColor: colors.surfaceMuted,
-    borderRadius: radius.lg,
-    paddingVertical: spacing.md + 2,
-    paddingHorizontal: spacing.lg,
-    borderWidth: 1,
-    borderColor: colors.border
-  },
-  scheduleIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: radius.md,
-    backgroundColor: colors.primarySoft,
-    alignItems: "center",
-    justifyContent: "center",
-    marginLeft: spacing.md
-  },
-  scheduleTextCol: {
-    flex: 1
-  },
-  scheduleTitle: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: colors.text,
-    textAlign: "right",
-    marginBottom: 2
-  },
-  scheduleSub: {
-    fontSize: 12,
-    color: colors.textMuted,
-    textAlign: "right",
-    fontWeight: "600"
-  },
-  scheduleLink: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: colors.primary
-  },
-  tabsRow: {
-    flexDirection: "row-reverse",
-    backgroundColor: colors.surfaceMuted,
-    borderRadius: radius.full,
-    padding: 4,
-    marginBottom: spacing.md
-  },
-  tabButton: {
-    flex: 1,
-    borderRadius: radius.full,
-    paddingVertical: 11,
-    alignItems: "center"
-  },
-  tabButtonActive: {
-    backgroundColor: colors.surfaceCard,
-    shadowColor: "#0c1222",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 6,
-    elevation: 2
-  },
-  tabText: {
-    fontSize: 13,
-    color: colors.textMuted,
-    fontWeight: "600"
-  },
-  tabTextActive: {
-    color: colors.primary,
-    fontWeight: "800"
-  },
-  listArea: {
-    flex: 1
-  },
-  listContent: {
-    paddingBottom: 100
-  },
-  listEmptyGrow: {
-    flexGrow: 1
-  },
-  addModalScroll: {
-    flexGrow: 1,
-    justifyContent: "flex-end",
-    paddingBottom: spacing.sm
-  },
-  warnText: {
-    fontSize: 13,
-    color: colors.accent,
-    textAlign: "right",
-    marginBottom: 10,
-    lineHeight: 20,
-    fontWeight: "600"
-  },
-  fieldChips: {
-    flexDirection: "row-reverse",
-    flexWrap: "wrap",
-    marginBottom: 10
-  },
-  durationChips: {
-    flexDirection: "row-reverse",
-    flexWrap: "wrap",
-    gap: 10,
-    marginBottom: 12
-  },
-  durationChip: {
-    flex: 1,
-    minWidth: "42%" as const,
-    paddingVertical: 14,
-    paddingHorizontal: 12,
-    borderRadius: radius.md,
-    backgroundColor: colors.surfaceMuted,
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    alignItems: "center"
-  },
-  durationChipActive: {
-    backgroundColor: colors.primarySoft,
-    borderColor: colors.primary
-  },
-  durationChipTitle: {
-    fontSize: 16,
-    fontWeight: "800",
-    color: colors.text
-  },
-  durationChipTitleActive: {
-    color: colors.primaryDark
-  },
-  durationChipSub: {
-    fontSize: 12,
-    color: colors.textMuted,
-    marginTop: 4,
-    fontWeight: "600"
-  },
-  durationChipSubActive: {
-    color: colors.primary
-  },
-  fieldChip: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    borderRadius: radius.full,
-    backgroundColor: colors.surfaceMuted,
-    borderWidth: 1,
-    borderColor: colors.border,
-    marginLeft: spacing.sm,
-    marginBottom: spacing.sm
-  },
-  fieldChipActive: {
-    backgroundColor: colors.primarySoft,
-    borderColor: colors.primary
-  },
-  fieldChipText: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: colors.textSecondary
-  },
-  fieldChipTextActive: {
-    color: colors.primaryDark,
-    fontWeight: "700"
-  },
-  inputLabel: {
-    fontSize: 13,
-    color: colors.textSecondary,
-    textAlign: "right",
-    marginBottom: 4,
-    fontWeight: "700"
-  },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: colors.overlay,
-    justifyContent: "flex-end"
-  },
-  modalCard: {
-    backgroundColor: colors.surfaceCard,
-    borderTopLeftRadius: radius.xxl,
-    borderTopRightRadius: radius.xxl,
-    padding: spacing.xl,
-    maxHeight: "92%"
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: "800",
-    textAlign: "center",
-    marginBottom: spacing.lg,
-    color: colors.text,
-    letterSpacing: -0.3
-  },
-  input: {
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
-    fontSize: 16,
-    marginBottom: spacing.sm + 2,
-    backgroundColor: colors.surfaceMuted,
-    color: colors.text
-  },
-  modalActions: {
-    flexDirection: "row-reverse",
-    marginTop: spacing.md
-  },
-  modalButton: {
-    flex: 1,
-    borderRadius: radius.full,
-    paddingVertical: spacing.md,
-    alignItems: "center"
-  },
-  modalCancel: {
-    backgroundColor: colors.surfaceMuted,
-    marginLeft: spacing.sm
-  },
-  modalPrimary: {
-    backgroundColor: colors.primary
-  },
-  modalCancelText: {
-    color: colors.text,
-    fontWeight: "800"
-  },
-  modalPrimaryText: {
-    color: colors.textOnPrimary,
-    fontWeight: "800"
-  }
-});

@@ -1,4 +1,4 @@
-import React, { useLayoutEffect, useState } from "react";
+import React, { useLayoutEffect, useMemo, useState } from "react";
 import {
   View,
   Text,
@@ -13,7 +13,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Ionicons } from "@expo/vector-icons";
 import Toast from "react-native-toast-message";
 import { ScreenShell } from "../components/ScreenShell";
-import { colors } from "../theme/colors";
+import { InputLayer } from "../components/InputLayer";
+import { useSettings } from "../providers/SettingsProvider";
+import type { AppPalette } from "../theme/colors";
 import { radius, spacing, cardElevation } from "../theme/tokens";
 import { t } from "../strings";
 import { isFirebaseConfigured } from "../config/firebaseConfig";
@@ -24,10 +26,85 @@ import {
   completePostMatch,
   fetchPostMatchContext
 } from "../services/postMatchFirestore";
+import { formatNumberEn } from "../lib/numberFormat";
 
 type Props = NativeStackScreenProps<MainAppStackParamList, "PostMatch">;
 
+function makePostMatchStyles(c: AppPalette) {
+  return StyleSheet.create({
+    scroll: { padding: spacing.lg, paddingBottom: 120, writingDirection: "ltr" },
+    center: { flex: 1, justifyContent: "center", alignItems: "center", padding: spacing.xl },
+    err: { textAlign: "center", color: c.danger, fontWeight: "700", padding: spacing.lg },
+    sub: {
+      fontSize: 14,
+      color: c.textMuted,
+      textAlign: "right",
+      lineHeight: 22,
+      marginBottom: spacing.md,
+      fontWeight: "600"
+    },
+    card: {
+      backgroundColor: c.surfaceCard,
+      borderRadius: radius.lg,
+      padding: spacing.lg,
+      marginBottom: spacing.lg
+    },
+    fieldTitle: { fontSize: 20, fontWeight: "900", textAlign: "right", color: c.text },
+    meta: { fontSize: 14, color: c.textSecondary, textAlign: "right", marginTop: 8, fontWeight: "600" },
+    playerLabel: { fontSize: 13, color: c.textSubtle, textAlign: "right", marginTop: spacing.md, fontWeight: "700" },
+    playerName: { fontSize: 17, fontWeight: "800", textAlign: "right", color: c.primaryDark, marginTop: 4 },
+    section: { fontSize: 14, fontWeight: "800", textAlign: "right", marginBottom: spacing.sm, color: c.text },
+    starsRow: {
+      flexDirection: "row-reverse",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginBottom: spacing.lg,
+      paddingHorizontal: spacing.xs
+    },
+    starHit: { padding: 4 },
+    input: {
+      borderWidth: 1.5,
+      borderColor: c.border,
+      borderRadius: radius.md,
+      padding: spacing.md,
+      minHeight: 88,
+      textAlignVertical: "top",
+      backgroundColor: c.surfaceMuted,
+      color: c.text,
+      marginBottom: spacing.xl
+    },
+    primaryBtn: {
+      backgroundColor: c.primary,
+      borderRadius: radius.full,
+      paddingVertical: spacing.md + 2,
+      alignItems: "center"
+    },
+    primaryBtnText: { color: c.textOnPrimary, fontWeight: "900", fontSize: 16 },
+    disabled: { opacity: 0.55 },
+    doneTitle: { fontSize: 18, fontWeight: "900", textAlign: "right", color: c.text },
+    backBtn: { marginTop: spacing.md, alignSelf: "center", padding: spacing.md },
+    backTxt: { color: c.primary, fontWeight: "800" },
+    noShowBanner: {
+      backgroundColor: c.dangerSoft,
+      borderWidth: 1,
+      borderColor: c.danger,
+      borderRadius: radius.md,
+      padding: spacing.md,
+      marginBottom: spacing.md
+    },
+    noShowBannerText: {
+      textAlign: "right",
+      color: c.danger,
+      fontWeight: "800",
+      fontSize: 13,
+      lineHeight: 20
+    }
+  });
+}
+
 export const PostMatchScreen: React.FC<Props> = ({ navigation, route }) => {
+  const { palette } = useSettings();
+  const styles = useMemo(() => makePostMatchStyles(palette), [palette]);
   const { mode, ownerBookingId, venueBookingId } = route.params;
   const { user } = useAuth();
   const queryClient = useQueryClient();
@@ -50,6 +127,7 @@ export const PostMatchScreen: React.FC<Props> = ({ navigation, route }) => {
         mode,
         ownerUid: user!.id,
         ownerPublicId: user!.ownerId ?? deriveOwnerIdFromUid(user!.id),
+        ownerDisplayName: user?.display_name?.trim() || undefined,
         ownerBookingId,
         venueBookingId,
         rating,
@@ -84,7 +162,7 @@ export const PostMatchScreen: React.FC<Props> = ({ navigation, route }) => {
     return (
       <ScreenShell>
         <View style={styles.center}>
-          <ActivityIndicator size="large" color={colors.primary} />
+          <ActivityIndicator size="large" color={palette.primary} />
         </View>
       </ScreenShell>
     );
@@ -105,7 +183,7 @@ export const PostMatchScreen: React.FC<Props> = ({ navigation, route }) => {
   if (ctx.isSettled) {
     return (
       <ScreenShell>
-        <View style={[styles.card, cardElevation(true)]}>
+        <View style={[styles.card, cardElevation(palette, true)]}>
           <Text style={styles.doneTitle}>{t.bookings.postMatchAlreadyDone}</Text>
           <Text style={styles.meta}>
             {ctx.fieldName} · {ctx.date}
@@ -119,18 +197,33 @@ export const PostMatchScreen: React.FC<Props> = ({ navigation, route }) => {
   }
 
   const priceLabel =
-    ctx.totalPrice > 0 ? ctx.totalPrice.toLocaleString("ar-IQ", { maximumFractionDigits: 2 }) : "—";
+    ctx.totalPrice > 0 ? formatNumberEn(ctx.totalPrice, { maximumFractionDigits: 2 }) : "—";
+  const priceShown =
+    ctx.attendanceStatus === "no_show"
+      ? "0"
+      : priceLabel;
 
   return (
     <ScreenShell>
-      <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        keyboardShouldPersistTaps="always"
+        keyboardDismissMode="on-drag"
+      >
+        <View style={{ position: "relative", alignSelf: "stretch" }}>
+          <InputLayer>
         <Text style={styles.sub}>{t.bookings.postMatchSubtitle}</Text>
+        {ctx.attendanceStatus === "no_show" ? (
+          <View style={styles.noShowBanner}>
+            <Text style={styles.noShowBannerText}>{t.bookings.postMatchNoShowIncomeHint}</Text>
+          </View>
+        ) : null}
 
-        <View style={[styles.card, cardElevation(true)]}>
+        <View style={[styles.card, cardElevation(palette, true)]}>
           <Text style={styles.fieldTitle}>{ctx.fieldName}</Text>
           <Text style={styles.meta}>{ctx.date}</Text>
           <Text style={styles.meta}>
-            {t.bookings.totalPriceLabel}: {priceLabel} {t.bookings.currencyShort}
+            {t.bookings.totalPriceLabel}: {priceShown} {t.bookings.currencyShort}
           </Text>
           <Text style={styles.playerLabel}>{t.bookings.ratePlayerLabel}</Text>
           <Text style={styles.playerName}>{ctx.playerDisplayName || t.bookings.noPlayerName}</Text>
@@ -143,7 +236,7 @@ export const PostMatchScreen: React.FC<Props> = ({ navigation, route }) => {
               <Ionicons
                 name={n <= rating ? "star" : "star-outline"}
                 size={36}
-                color={n <= rating ? colors.accent : colors.textSubtle}
+                color={n <= rating ? palette.accent : palette.textSubtle}
               />
             </Pressable>
           ))}
@@ -155,15 +248,15 @@ export const PostMatchScreen: React.FC<Props> = ({ navigation, route }) => {
           value={comment}
           onChangeText={setComment}
           placeholder={t.bookings.commentPlaceholder}
-          placeholderTextColor={colors.textSubtle}
+          placeholderTextColor={palette.textSubtle}
           textAlign="right"
           multiline
         />
 
         <Pressable
           style={[styles.primaryBtn, submitMut.isPending && styles.disabled]}
-          disabled={submitMut.isPending}
           onPress={() => {
+            if (submitMut.isPending) return;
             if (rating < 1) {
               Toast.show({ type: "info", text1: t.bookings.postMatchPickRating });
               return;
@@ -172,67 +265,14 @@ export const PostMatchScreen: React.FC<Props> = ({ navigation, route }) => {
           }}
         >
           {submitMut.isPending ? (
-            <ActivityIndicator color={colors.textOnPrimary} />
+            <ActivityIndicator color={palette.textOnPrimary} />
           ) : (
             <Text style={styles.primaryBtnText}>{t.bookings.submitPostMatch}</Text>
           )}
         </Pressable>
+          </InputLayer>
+        </View>
       </ScrollView>
     </ScreenShell>
   );
 };
-
-const styles = StyleSheet.create({
-  scroll: { padding: spacing.lg, paddingBottom: 120 },
-  center: { flex: 1, justifyContent: "center", alignItems: "center", padding: spacing.xl },
-  err: { textAlign: "center", color: colors.danger, fontWeight: "700", padding: spacing.lg },
-  sub: {
-    fontSize: 14,
-    color: colors.textMuted,
-    textAlign: "right",
-    lineHeight: 22,
-    marginBottom: spacing.md,
-    fontWeight: "600"
-  },
-  card: {
-    backgroundColor: colors.surfaceCard,
-    borderRadius: radius.lg,
-    padding: spacing.lg,
-    marginBottom: spacing.lg
-  },
-  fieldTitle: { fontSize: 20, fontWeight: "900", textAlign: "right", color: colors.text },
-  meta: { fontSize: 14, color: colors.textSecondary, textAlign: "right", marginTop: 8, fontWeight: "600" },
-  playerLabel: { fontSize: 13, color: colors.textSubtle, textAlign: "right", marginTop: spacing.md, fontWeight: "700" },
-  playerName: { fontSize: 17, fontWeight: "800", textAlign: "right", color: colors.primaryDark, marginTop: 4 },
-  section: { fontSize: 14, fontWeight: "800", textAlign: "right", marginBottom: spacing.sm, color: colors.text },
-  starsRow: {
-    flexDirection: "row-reverse",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: spacing.lg,
-    paddingHorizontal: spacing.xs
-  },
-  starHit: { padding: 4 },
-  input: {
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    padding: spacing.md,
-    minHeight: 88,
-    textAlignVertical: "top",
-    backgroundColor: colors.surfaceMuted,
-    color: colors.text,
-    marginBottom: spacing.xl
-  },
-  primaryBtn: {
-    backgroundColor: colors.primary,
-    borderRadius: radius.full,
-    paddingVertical: spacing.md + 2,
-    alignItems: "center"
-  },
-  primaryBtnText: { color: colors.textOnPrimary, fontWeight: "900", fontSize: 16 },
-  disabled: { opacity: 0.55 },
-  doneTitle: { fontSize: 18, fontWeight: "900", textAlign: "right", color: colors.text },
-  backBtn: { marginTop: spacing.md, alignSelf: "center", padding: spacing.md },
-  backTxt: { color: colors.primary, fontWeight: "800" }
-});

@@ -1,6 +1,6 @@
-import React from "react";
+import React, { useMemo } from "react";
 import { StyleSheet, View, ViewStyle } from "react-native";
-import { colors } from "../../theme/colors";
+import { useSettings } from "../../providers/SettingsProvider";
 import { radius, spacing, cardElevation } from "../../theme/tokens";
 
 type Props = {
@@ -9,15 +9,19 @@ type Props = {
   elevated?: boolean;
 };
 
-export const SurfaceCard: React.FC<Props> = ({ children, style, elevated }) => (
-  <View style={[styles.card, cardElevation(!!elevated), style]}>{children}</View>
-);
+export const SurfaceCard: React.FC<Props> = ({ children, style, elevated }) => {
+  const { palette } = useSettings();
+  const styles = useMemo(
+    () =>
+      StyleSheet.create({
+        card: {
+          borderRadius: radius.lg,
+          padding: spacing.lg,
+          marginBottom: spacing.md
+        }
+      }),
+    []
+  );
 
-const styles = StyleSheet.create({
-  card: {
-    borderRadius: radius.lg,
-    padding: spacing.lg,
-    marginBottom: spacing.md,
-    backgroundColor: colors.surfaceCard
-  }
-});
+  return <View style={[styles.card, cardElevation(palette, !!elevated), style]}>{children}</View>;
+};

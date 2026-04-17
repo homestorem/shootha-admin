@@ -12,6 +12,11 @@ export type AccountEntry = {
   at: string;
   /** يمنع تكرار تسجيل وارد نفس الحجز */
   linkedBookingId?: string;
+  /** تصنيف المصروف (اختياري) */
+  category?: string;
+  /** وارد يدوي من حجز: مدة بالساعات × سعر الساعة */
+  durationHours?: number;
+  pricePerHour?: number;
 };
 
 export type AccountsSnapshot = {
@@ -42,9 +47,29 @@ export function makeEntryId(): string {
   return `${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
 }
 
-/** مجموع وارد خارجي (كل السجل) */
+/** وارد خارجي (منصة / API / تسجيل يدوي كـ خارجي) — بدون وارد نهاية الحجز التلقائي */
 export function sumExternalIncome(entries: AccountEntry[]): number {
   return entries.filter((e) => e.kind === "income_external").reduce((a, e) => a + e.amount, 0);
+}
+
+/** وارد تلقائي عند انتهاء حجز (PostMatch / إنهاء الجلسة) — ضمن إجمالي الوارد */
+export function sumBookingAutoIncome(entries: AccountEntry[]): number {
+  return entries.filter((e) => e.kind === "income_booking").reduce((a, e) => a + e.amount, 0);
+}
+
+/** مجموع كل أنواع الوارد المسجّلة في نفس اليوم التقويمي (محلي) — يُعرض كـ«وارد يومي» ويُصفّر مع بداية يوم جديد */
+export function sumIncomeForCalendarDay(entries: AccountEntry[], ref: Date = new Date()): number {
+  const y = ref.getFullYear();
+  const mo = ref.getMonth();
+  const d = ref.getDate();
+  const incomeKinds: AccountEntryKind[] = ["income_external", "income_manual", "income_booking"];
+  return entries
+    .filter((e) => incomeKinds.includes(e.kind))
+    .filter((e) => {
+      const dt = new Date(e.at);
+      return dt.getFullYear() === y && dt.getMonth() === mo && dt.getDate() === d;
+    })
+    .reduce((a, e) => a + e.amount, 0);
 }
 
 /** مجموع وارد يدوي */
@@ -57,7 +82,7 @@ export function sumExpenses(entries: AccountEntry[]): number {
   return entries.filter((e) => e.kind === "expense").reduce((a, e) => a + e.amount, 0);
 }
 
-/** وارد الشهر الحالي (خارجي + يدوي + من حجوزات منتهية) */
+/** وارد الشهر الحالي (كل أنواع الوارد) */
 export function sumMonthlyIncome(entries: AccountEntry[], ref: Date = new Date()): number {
   const y = ref.getFullYear();
   const m = ref.getMonth();
@@ -75,26 +100,23 @@ export function sumMonthlyIncome(entries: AccountEntry[], ref: Date = new Date()
     .reduce((a, e) => a + e.amount, 0);
 }
 
-/** إجمالي وارد مسجّل من إنهاء مباريات (حجوزات) */
-export function sumBookingIncome(entries: AccountEntry[]): number {
-  return entries.filter((e) => e.kind === "income_booking").reduce((a, e) => a + e.amount, 0);
-}
-
 export async function appendBookingIncomeEntry(input: {
   linkedBookingId: string;
   amount: number;
   note: string;
-}): Promise<void> {
-  if (!Number.isFinite(input.amount) || input.amount <= 0) return;
+  kind?: AccountEntryKind;
+}): Promise<AccountEntry | null> {
+  if (!Number.isFinite(input.amount) || input.amount <= 0) return null;
   const snap = await loadAccountsSnapshot();
-  if (snap.entries.some((e) => e.linkedBookingId === input.linkedBookingId)) return;
+  if (snap.entries.some((e) => e.linkedBookingId === input.linkedBookingId)) return null;
   const entry: AccountEntry = {
     id: makeEntryId(),
-    kind: "income_booking",
+    kind: input.kind ?? "income_booking",
     amount: Math.round(input.amount * 100) / 100,
     note: input.note,
     at: new Date().toISOString(),
     linkedBookingId: input.linkedBookingId
   };
   await saveAccountsSnapshot({ entries: [entry, ...snap.entries] });
+  return entry;
 }

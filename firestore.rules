@@ -6,6 +6,52 @@ service cloud.firestore {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
 
+    /**
+     * بطاقات الشحن — يقرأها المستخدم الموثق، ويسمح له فقط بتعليم البطاقة كـ مستخدمة مرة واحدة.
+     */
+    match /vouchers/{voucherId} {
+      allow read: if request.auth != null;
+      allow update: if request.auth != null
+        && !(resource.data.isUsed == true || resource.data.used == true)
+        && request.resource.data.isUsed == true
+        && request.resource.data.used == true
+        && request.resource.data.usedBy == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          "isUsed",
+          "used",
+          "usedBy",
+          "usedAt",
+          "redeemedAmount"
+        ]);
+      allow create, delete: if false;
+    }
+
+    /**
+     * حركات المحفظة — المستخدم ينشئ ويقرأ حركاته فقط.
+     */
+    match /walletTransactions/{transactionId} {
+      allow create: if request.auth != null
+        && request.resource.data.userUid == request.auth.uid;
+      allow read: if request.auth != null
+        && resource.data.userUid == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    /**
+     * دردشة الدعم — المالك يقرأ كل الرسائل ويكتب sender=owner؛ ردود الفريق تُنشأ من Admin SDK / لوحة Firebase (sender=support).
+     * ملاحظة: قواعد `users/{userId}` لا تشمل المسارات الفرعية تلقائياً، لذلك هذا المسار صريح حتى تظهر الرسائل الواردة.
+     */
+    match /users/{userId}/support_messages/{messageId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow create: if request.auth != null
+        && request.auth.uid == userId
+        && request.resource.data.sender == "owner"
+        && request.resource.data.text is string
+        && request.resource.data.text.size() > 0
+        && request.resource.data.text.size() <= 8000;
+      allow update, delete: if false;
+    }
+
     match /field_requests/{requestId} {
       allow create: if request.auth != null;
       /** صاحب الطلب فقط يقرأ حالة الطلب (قبول/رفض من لوحة الإدارة) */
@@ -56,16 +102,33 @@ service cloud.firestore {
     }
 
     /**
+     * إجراءات أصحاب الملاعب — سجل append-only (إنشاء/تعديل/حذف حجز، حضور، إلخ) من تطبيق المالك.
+     */
+    match /owner_field_actions/{docId} {
+      allow create: if request.auth != null
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.categoryKey == "owner_field_actions"
+        && request.resource.data.action is string
+        && request.resource.data.sourceCollection is string
+        && request.resource.data.targetId is string;
+      allow read: if request.auth != null && resource.data.ownerUid == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    /** مالية الملاعب — سجل حركات مالية مع اسم ومعرّف صاحب الحساب (Firebase) */
+    match /field_finances/{docId} {
+      allow read: if request.auth != null && resource.data.ownerUid == request.auth.uid;
+      allow create, update: if request.auth != null
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.personId == request.auth.uid;
+      allow delete: if false;
+    }
+
+    /**
      * ملاعب الداشبورد — ownerId يطابق users/{uid}.ownerId (قراءة فقط من التطبيق)
      */
     match /fields/{fieldId} {
-      function ownsDashboardField() {
-        return request.auth != null
-          && resource.data.ownerId is string
-          && exists(/databases/$(database)/documents/users/$(request.auth.uid))
-          && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.ownerId == resource.data.ownerId;
-      }
-      allow read: if ownsDashboardField();
+      allow read: if request.auth != null;
       allow create, update, delete: if false;
     }
 

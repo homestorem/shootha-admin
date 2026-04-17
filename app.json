@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "shoot'ha Business",
+    "name": "SHOOT'HA BUSINESS",
     "slug": "shoota-business",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -9,9 +9,11 @@
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#0f766e"
+      "backgroundColor": "#0C8E4E"
     },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.shootabusiness.app",
@@ -23,24 +25,21 @@
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#0f766e"
+        "backgroundColor": "#00E676"
       },
       "package": "com.shootabusiness.app"
     },
+    
     "plugins": [
-      "expo-notifications",
-      [
-        "expo-secure-store",
-        {
-          "faceIDPermission": "اسمح لتطبيق shoot'ha باستخدام بصمة الوجه."
-        }
-      ]
+      "./plugins/withAndroidGradlePluginRepositories.js",
+      "@react-native-firebase/app",
+      "@react-native-firebase/app-check"
     ],
     "extra": {
       "eas": {
-        "projectId": "YOUR_EAS_PROJECT_ID"
-      },
-      "fieldOwnerLinkId": ""
-    }
+        "projectId": "1aea1772-9740-49f0-a2f5-e7bfc576e5a4"
+      }
+    },
+    "owner": "othman5174"
   }
 }

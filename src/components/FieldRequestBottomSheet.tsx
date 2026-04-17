@@ -1,7 +1,10 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Dimensions,
+  Keyboard,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -19,12 +22,15 @@ import Animated, {
   withTiming
 } from "react-native-reanimated";
 import { Ionicons } from "@expo/vector-icons";
-import { colors } from "../theme/colors";
-import { radius, spacing } from "../theme/tokens";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useSettings } from "../providers/SettingsProvider";
+import { spacing } from "../theme/tokens";
+import { makeFieldRequestBottomSheetStyles } from "./fieldRequestBottomSheetStyles";
 import { t } from "../strings";
 import type { AuthUser } from "../lib/authTypes";
 import { formatWizardStep } from "../lib/arabicLocale";
 import { DEFAULT_DIAL_CODE, hasResolvableContact } from "../lib/phoneDial";
+import { InputLayer } from "./InputLayer";
 
 type Props = {
   visible: boolean;
@@ -38,6 +44,10 @@ type Props = {
   setReqFieldName: (v: string) => void;
   reqCity: string;
   setReqCity: (v: string) => void;
+  reqProvince: string;
+  setReqProvince: (v: string) => void;
+  reqFieldType: string;
+  setReqFieldType: (v: string) => void;
   reqNotes: string;
   setReqNotes: (v: string) => void;
   reqPhone: string;
@@ -47,6 +57,26 @@ type Props = {
 };
 
 const STEPS = 3;
+const IRAQ_PROVINCES = [
+  "بغداد",
+  "البصرة",
+  "نينوى",
+  "أربيل",
+  "الأنبار",
+  "كركوك",
+  "صلاح الدين",
+  "النجف",
+  "كربلاء",
+  "بابل",
+  "ديالى",
+  "واسط",
+  "ميسان",
+  "ذي قار",
+  "المثنى",
+  "القادسية",
+  "دهوك",
+  "السليمانية"
+] as const;
 
 export function FieldRequestBottomSheet({
   visible,
@@ -59,6 +89,10 @@ export function FieldRequestBottomSheet({
   setReqFieldName,
   reqCity,
   setReqCity,
+  reqProvince,
+  setReqProvince,
+  reqFieldType,
+  setReqFieldType,
   reqNotes,
   setReqNotes,
   reqPhone,
@@ -66,10 +100,38 @@ export function FieldRequestBottomSheet({
   submitting,
   onSubmit
 }: Props) {
+  const { palette } = useSettings();
+  const insets = useSafeAreaInsets();
+  const styles = useMemo(() => makeFieldRequestBottomSheetStyles(palette), [palette]);
+  /** ارتفاع الشاشة الفعلي — لا يتقلص مع الكيبورد (بعكس window) فيظهر الكيبورد فوق الورقة بدلاً من دفعها */
+  const screenH = Dimensions.get("screen").height;
+  const sheetHeight = Math.min(screenH * 0.92, screenH - insets.top - 8);
+  const actionsPadBottom = spacing.lg + Math.max(insets.bottom, 12);
   const [mounted, setMounted] = useState(false);
   const [step, setStep] = useState(0);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
   const backdrop = useSharedValue(0);
   const sheetY = useSharedValue(520);
+
+  useEffect(() => {
+    if (!visible) setKeyboardHeight(0);
+  }, [visible]);
+
+  useEffect(() => {
+    if (!mounted) return;
+    const showEvt = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvt = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const subShow = Keyboard.addListener(showEvt, (e) => {
+      setKeyboardHeight(e.endCoordinates.height);
+    });
+    const subHide = Keyboard.addListener(hideEvt, () => {
+      setKeyboardHeight(0);
+    });
+    return () => {
+      subShow.remove();
+      subHide.remove();
+    };
+  }, [mounted]);
   useEffect(() => {
     if (!visible || mounted) return;
     setMounted(true);
@@ -99,13 +161,17 @@ export function FieldRequestBottomSheet({
   }));
 
   const requestClose = () => {
+    Keyboard.dismiss();
     onClose();
   };
 
   const canNextFromStep0 = reqPersonName.trim().length > 0 && reqFieldName.trim().length > 0;
+  const canNextFromStep1 =
+    reqCity.trim().length > 0 && reqProvince.trim().length > 0 && reqFieldType.trim().length > 0;
 
   const goNext = () => {
     if (step === 0 && !canNextFromStep0) return;
+    if (step === 1 && !canNextFromStep1) return;
     if (step < STEPS - 1) setStep((s) => s + 1);
   };
 
@@ -115,6 +181,10 @@ export function FieldRequestBottomSheet({
   };
 
   const contactOk = hasResolvableContact(reqPhone, user?.phone);
+  const heroColors =
+    palette.scheme === "dark"
+      ? (["rgba(18, 34, 28, 0.98)", "rgba(24, 48, 39, 0.96)", "rgba(31, 58, 47, 0.94)"] as const)
+      : (["#2B6B58", "#357863", "#40856E"] as const);
 
   const handlePrimary = () => {
     if (step < STEPS - 1) {
@@ -131,14 +201,23 @@ export function FieldRequestBottomSheet({
 
   return (
     <Modal visible={mounted} transparent animationType="none" statusBarTranslucent onRequestClose={requestClose}>
-      <View style={styles.root}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={requestClose}>
-          <Animated.View style={[styles.backdrop, backdropStyle]} />
-        </Pressable>
+      <View style={styles.kavRoot} pointerEvents="box-none">
+        <View style={styles.root} pointerEvents="box-none">
+          <Pressable
+            style={[StyleSheet.absoluteFill, styles.backdropPressable]}
+            onPress={requestClose}
+            accessible={false}
+            pointerEvents="box-none"
+          >
+            <Animated.View pointerEvents="none" style={[styles.backdrop, backdropStyle]} />
+          </Pressable>
 
-        <Animated.View style={[styles.sheet, sheetStyle]}>
+          <Animated.View
+            style={[styles.sheet, sheetStyle, { height: sheetHeight, maxHeight: sheetHeight }]}
+            pointerEvents="auto"
+          >
           <LinearGradient
-            colors={[colors.primaryDeep, colors.primary, colors.heroEnd]}
+            colors={heroColors}
             start={{ x: 1, y: 0 }}
             end={{ x: 0, y: 1 }}
             style={styles.hero}
@@ -164,11 +243,16 @@ export function FieldRequestBottomSheet({
             </Text>
           </LinearGradient>
 
-          <ScrollView
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={styles.scrollPad}
-          >
+          <View style={styles.sheetBody}>
+            <InputLayer variant="fill">
+              <ScrollView
+                style={styles.sheetScroll}
+                keyboardShouldPersistTaps="always"
+                keyboardDismissMode="on-drag"
+                showsVerticalScrollIndicator={false}
+                automaticallyAdjustKeyboardInsets={false}
+                contentContainerStyle={styles.scrollPad}
+              >
             {step === 0 && (
               <View>
                 <Text style={styles.inputLabel}>{t.bookings.requesterNameLabel}</Text>
@@ -178,7 +262,7 @@ export function FieldRequestBottomSheet({
                   value={reqPersonName}
                   textAlign="right"
                   onChangeText={setReqPersonName}
-                  placeholderTextColor="#9CA3AF"
+                  placeholderTextColor={palette.textSubtle}
                 />
                 <Text style={styles.inputLabel}>{t.bookings.fieldNameLabel}</Text>
                 <TextInput
@@ -187,7 +271,7 @@ export function FieldRequestBottomSheet({
                   value={reqFieldName}
                   textAlign="right"
                   onChangeText={setReqFieldName}
-                  placeholderTextColor="#9CA3AF"
+                  placeholderTextColor={palette.textSubtle}
                 />
               </View>
             )}
@@ -201,8 +285,53 @@ export function FieldRequestBottomSheet({
                   value={reqCity}
                   textAlign="right"
                   onChangeText={setReqCity}
-                  placeholderTextColor="#9CA3AF"
+                  placeholderTextColor={palette.textSubtle}
                 />
+                <Text style={styles.inputLabel}>{t.bookings.provinceLabel}</Text>
+                <View style={styles.optionsWrap}>
+                  {IRAQ_PROVINCES.map((province) => {
+                    const active = reqProvince === province;
+                    return (
+                      <Pressable
+                        key={province}
+                        onPress={() => setReqProvince(province)}
+                        style={({ pressed }) => [
+                          styles.optionChip,
+                          active && styles.optionChipActive,
+                          pressed && styles.pressed
+                        ]}
+                      >
+                        <Text style={[styles.optionChipText, active && styles.optionChipTextActive]}>{province}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+                <Text style={styles.inputLabel}>{t.bookings.fieldTypeLabel}</Text>
+                <View style={styles.optionsWrap}>
+                  {[
+                    t.bookings.fieldTypeFootball,
+                    t.bookings.fieldTypePadel,
+                    t.bookings.fieldTypeBasketball,
+                    t.bookings.fieldTypeVolleyball
+                  ].map((fieldType) => {
+                    const active = reqFieldType === fieldType;
+                    return (
+                      <Pressable
+                        key={fieldType}
+                        onPress={() => setReqFieldType(fieldType)}
+                        style={({ pressed }) => [
+                          styles.optionChip,
+                          active && styles.optionChipActive,
+                          pressed && styles.pressed
+                        ]}
+                      >
+                        <Text style={[styles.optionChipText, active && styles.optionChipTextActive]}>
+                          {fieldType}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
                 <Text style={styles.inputLabel}>{t.bookings.notesLabel}</Text>
                 <TextInput
                   style={[styles.input, styles.inputMultiline]}
@@ -211,7 +340,7 @@ export function FieldRequestBottomSheet({
                   textAlign="right"
                   multiline
                   onChangeText={setReqNotes}
-                  placeholderTextColor="#9CA3AF"
+                  placeholderTextColor={palette.textSubtle}
                 />
               </View>
             )}
@@ -219,28 +348,28 @@ export function FieldRequestBottomSheet({
             {step === 2 && (
               <View>
                 <Text style={styles.inputLabel}>{t.bookings.fieldRequestOwnerIdLabel}</Text>
-                <TextInput
-                  style={[styles.input, styles.inputReadonly]}
-                  value={ownerAccountId.trim() || "—"}
-                  editable={false}
-                  selectTextOnFocus
-                  textAlign="right"
-                />
+                <View style={[styles.input, styles.readonlyIdBox]}>
+                  <Text style={styles.readonlyIdText} selectable>
+                    {ownerAccountId.trim() || "—"}
+                  </Text>
+                </View>
                 <Text style={styles.idHintMuted}>{t.bookings.fieldRequestOwnerIdHint}</Text>
 
                 <Text style={styles.inputLabel}>{t.bookings.contactPhoneLabel}</Text>
                 <View style={styles.phoneRow}>
-                  <TextInput
-                    style={[styles.input, styles.phoneInputFlex]}
-                    placeholder={t.bookings.contactPhonePlaceholderNational}
-                    value={reqPhone}
-                    textAlign="right"
-                    keyboardType="phone-pad"
-                    onChangeText={setReqPhone}
-                    placeholderTextColor="#9CA3AF"
-                  />
                   <View style={styles.dialPrefix}>
                     <Text style={styles.dialPrefixText}>{DEFAULT_DIAL_CODE}</Text>
+                  </View>
+                  <View style={styles.phoneInputOuter}>
+                    <TextInput
+                      style={[styles.input, styles.phoneInputFlex]}
+                      placeholder={t.bookings.contactPhonePlaceholderNational}
+                      value={reqPhone}
+                      textAlign="left"
+                      keyboardType="phone-pad"
+                      onChangeText={setReqPhone}
+                      placeholderTextColor={palette.textSubtle}
+                    />
                   </View>
                 </View>
                 <Text style={styles.idHintMuted}>{t.bookings.requestIdSentHint}</Text>
@@ -253,6 +382,12 @@ export function FieldRequestBottomSheet({
                   <Text style={styles.summaryLine}>
                     {t.bookings.fieldNameLabel}: {reqFieldName.trim() || "—"}
                   </Text>
+                  <Text style={styles.summaryLine}>
+                    {t.bookings.provinceLabel}: {reqProvince.trim() || "—"}
+                  </Text>
+                  <Text style={styles.summaryLine}>
+                    {t.bookings.fieldTypeLabel}: {reqFieldType.trim() || "—"}
+                  </Text>
                   {(reqCity.trim() || reqNotes.trim()) && (
                     <Text style={styles.summaryLine} numberOfLines={3}>
                       {reqCity.trim() ? `${t.bookings.cityLabel}: ${reqCity.trim()}` : ""}
@@ -263,24 +398,39 @@ export function FieldRequestBottomSheet({
                 </View>
               </View>
             )}
-          </ScrollView>
+              </ScrollView>
 
-          <View style={styles.actions}>
+              <View style={[styles.actions, { paddingBottom: actionsPadBottom }]}>
             <Pressable
               style={({ pressed }) => [styles.btnSecondary, pressed && styles.pressed]}
-              onPress={goBack}
-              disabled={submitting}
+              onPress={() => {
+                if (submitting) return;
+                goBack();
+              }}
             >
               <Text style={styles.btnSecondaryText}>{step === 0 ? t.bookings.modalCancel : t.bookings.fieldRequestBack}</Text>
             </Pressable>
             <Pressable
               style={({ pressed }) => [
                 styles.btnPrimary,
-                (step === 0 && !canNextFromStep0) || (step === 2 && !contactOk) ? styles.btnDisabled : null,
+                (step === 0 && !canNextFromStep0) ||
+                (step === 1 && !canNextFromStep1) ||
+                (step === 2 && !contactOk)
+                  ? styles.btnDisabled
+                  : null,
                 pressed && styles.pressed
               ]}
-              onPress={handlePrimary}
-              disabled={submitting || (step === 0 && !canNextFromStep0) || (step === 2 && !contactOk)}
+              onPress={() => {
+                if (
+                  submitting ||
+                  (step === 0 && !canNextFromStep0) ||
+                  (step === 1 && !canNextFromStep1) ||
+                  (step === 2 && !contactOk)
+                ) {
+                  return;
+                }
+                handlePrimary();
+              }}
             >
               {submitting && step === STEPS - 1 ? (
                 <ActivityIndicator color="#fff" />
@@ -290,219 +440,24 @@ export function FieldRequestBottomSheet({
                 </Text>
               )}
             </Pressable>
+              </View>
+            </InputLayer>
           </View>
         </Animated.View>
+        </View>
+
+        {keyboardHeight > 0 ? (
+          <View style={[styles.keyboardAccessoryBar, { bottom: keyboardHeight }]} pointerEvents="box-none">
+            <Pressable
+              onPress={() => Keyboard.dismiss()}
+              style={({ pressed }) => [styles.keyboardDoneBtn, pressed && { opacity: 0.75 }]}
+              hitSlop={14}
+            >
+              <Text style={styles.keyboardDoneText}>{t.common.done}</Text>
+            </Pressable>
+          </View>
+        ) : null}
       </View>
     </Modal>
   );
 }
-
-const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    justifyContent: "flex-end"
-  },
-  backdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: colors.text
-  },
-  sheet: {
-    backgroundColor: colors.surfaceCard,
-    borderTopLeftRadius: radius.xxl,
-    borderTopRightRadius: radius.xxl,
-    maxHeight: "92%",
-    overflow: "hidden",
-    shadowColor: "#0c1222",
-    shadowOffset: { width: 0, height: -8 },
-    shadowOpacity: 0.15,
-    shadowRadius: 28,
-    elevation: 24
-  },
-  hero: {
-    paddingHorizontal: spacing.xl,
-    paddingTop: spacing.sm + 2,
-    paddingBottom: spacing.lg + 2
-  },
-  handle: {
-    alignSelf: "center",
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: "rgba(255,255,255,0.35)",
-    marginBottom: 14
-  },
-  heroTop: {
-    flexDirection: "row-reverse",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 12
-  },
-  heroIcon: {
-    width: 52,
-    height: 52,
-    borderRadius: 16,
-    backgroundColor: "rgba(255,255,255,0.2)",
-    alignItems: "center",
-    justifyContent: "center"
-  },
-  closeBtn: {
-    padding: 6
-  },
-  heroTitle: {
-    fontSize: 22,
-    fontWeight: "900",
-    color: "#FFFFFF",
-    textAlign: "right",
-    marginBottom: 6
-  },
-  heroSub: {
-    fontSize: 14,
-    color: "rgba(255,255,255,0.9)",
-    textAlign: "right",
-    lineHeight: 21,
-    marginBottom: 16
-  },
-  progressRow: {
-    flexDirection: "row-reverse",
-    gap: 8,
-    marginBottom: 10
-  },
-  progressSeg: {
-    flex: 1,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: "rgba(255,255,255,0.28)"
-  },
-  progressSegActive: {
-    backgroundColor: "#FFFFFF"
-  },
-  stepBadge: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "rgba(255,255,255,0.88)",
-    textAlign: "right"
-  },
-  scrollPad: {
-    paddingHorizontal: 20,
-    paddingTop: 18,
-    paddingBottom: 12
-  },
-  inputLabel: {
-    fontSize: 13,
-    color: colors.textSecondary,
-    textAlign: "right",
-    marginBottom: 6,
-    fontWeight: "700"
-  },
-  phoneRow: {
-    flexDirection: "row-reverse",
-    alignItems: "stretch",
-    marginBottom: spacing.md + 2,
-    gap: 8
-  },
-  phoneInputFlex: {
-    flex: 1,
-    marginBottom: 0
-  },
-  dialPrefix: {
-    justifyContent: "center",
-    paddingHorizontal: spacing.sm,
-    borderRadius: radius.md,
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceMuted
-  },
-  dialPrefixText: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: colors.primary
-  },
-  input: {
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md + 2,
-    fontSize: 16,
-    marginBottom: spacing.md + 2,
-    backgroundColor: colors.surfaceMuted,
-    color: colors.text
-  },
-  inputMultiline: {
-    minHeight: 100,
-    textAlignVertical: "top"
-  },
-  inputReadonly: {
-    opacity: 1,
-    color: colors.textSecondary,
-    backgroundColor: colors.surfaceMuted
-  },
-  idHintMuted: {
-    fontSize: 12,
-    color: colors.textMuted,
-    textAlign: "right",
-    marginBottom: 10
-  },
-  summary: {
-    backgroundColor: colors.surfaceMuted,
-    borderRadius: radius.lg,
-    padding: spacing.lg,
-    borderWidth: 1,
-    borderColor: colors.border
-  },
-  summaryTitle: {
-    fontSize: 14,
-    fontWeight: "800",
-    color: colors.text,
-    textAlign: "right",
-    marginBottom: 10
-  },
-  summaryLine: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    textAlign: "right",
-    lineHeight: 22,
-    marginBottom: 4
-  },
-  actions: {
-    flexDirection: "row-reverse",
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.lg,
-    paddingBottom: 22,
-    gap: 10,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border
-  },
-  btnSecondary: {
-    flex: 1,
-    borderRadius: radius.full,
-    paddingVertical: spacing.md + 2,
-    alignItems: "center",
-    backgroundColor: colors.surfaceMuted,
-    borderWidth: 1,
-    borderColor: colors.border
-  },
-  btnSecondaryText: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: colors.textSecondary
-  },
-  btnPrimary: {
-    flex: 1,
-    borderRadius: 999,
-    paddingVertical: 14,
-    alignItems: "center",
-    backgroundColor: colors.primary
-  },
-  btnDisabled: {
-    opacity: 0.45
-  },
-  btnPrimaryText: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: "#FFFFFF"
-  },
-  pressed: {
-    opacity: 0.92
-  }
-});

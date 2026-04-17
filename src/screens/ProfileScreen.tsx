@@ -1,303 +1,248 @@
-import React, { useState, useEffect } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  Switch,
-  TextInput,
-  Modal,
-  ScrollView
-} from "react-native";
+﻿import React, { useMemo } from "react";
+import { View, Text, ScrollView, Pressable, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { SolidPanelFill } from "../components/SolidPanelFill";
+import { useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import { ScreenShell } from "../components/ScreenShell";
+import { InputLayer } from "../components/InputLayer";
 import { useAuth } from "../providers/AuthProvider";
 import { useSettings } from "../providers/SettingsProvider";
-import { t } from "../strings";
-import Toast from "react-native-toast-message";
-import { ScreenShell } from "../components/ScreenShell";
-import { colors } from "../theme/colors";
-import { cardElevation, radius, spacing } from "../theme/tokens";
+import type { AppLanguage } from "../i18n";
+import type { MainAppStackParamList } from "../navigation/mainAppStackTypes";
+import { neonCardShell, spacing } from "../theme/tokens";
+import { NeonHeroHeader } from "../components/ui/NeonHeroHeader";
+import type { AppPalette } from "../theme/colors";
+import { createRtl } from "../utils/rtl";
+
+function makeStyles(c: AppPalette) {
+  const isDark = c.scheme === "dark";
+  return StyleSheet.create({
+    scroll: { paddingTop: spacing.sm, paddingBottom: 110 },
+    glassShell: {
+      ...neonCardShell(c),
+      marginBottom: spacing.md,
+      overflow: "hidden"
+    },
+    userCard: { padding: spacing.lg },
+    userName: {
+      fontSize: 22,
+      fontWeight: "900",
+      textAlign: "right",
+      writingDirection: "rtl",
+      color: isDark ? "#FFFFFF" : "#1A1A1A"
+    },
+    userPhone: {
+      marginTop: 6,
+      fontSize: 14,
+      fontWeight: "700",
+      textAlign: "right",
+      writingDirection: "rtl",
+      color: isDark ? "#B0BEC5" : "#666666"
+    },
+    row: {
+      flexDirection: "row-reverse",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.md + 2,
+      minHeight: 62,
+      gap: spacing.sm
+    },
+    rowTextWrap: { flex: 1, alignItems: "flex-end", minWidth: 0 },
+    rowTitle: {
+      fontSize: 15,
+      fontWeight: "900",
+      textAlign: "right",
+      writingDirection: "rtl",
+      color: isDark ? "#FFFFFF" : "#1A1A1A"
+    },
+    rowSub: {
+      marginTop: 6,
+      fontSize: 12,
+      fontWeight: "700",
+      textAlign: "right",
+      writingDirection: "rtl",
+      color: isDark ? "#B0BEC5" : "#666666"
+    },
+    rowIcon: {
+      width: 38,
+      height: 38,
+      borderRadius: 12,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 1,
+      borderColor: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)",
+      backgroundColor: c.primarySoft
+    },
+    rowTitleDanger: {
+      color: "#FF5252"
+    },
+    rowIconDanger: {
+      backgroundColor: isDark ? "rgba(255,82,82,0.14)" : "rgba(255,82,82,0.10)",
+      borderColor: isDark ? "rgba(255,82,82,0.24)" : "rgba(255,82,82,0.2)"
+    },
+    divider: {
+      height: StyleSheet.hairlineWidth,
+      backgroundColor: isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.07)",
+      marginHorizontal: spacing.lg
+    },
+    pressed: { opacity: 0.92, transform: [{ scale: 0.992 }] }
+  });
+}
 
 export const ProfileScreen: React.FC = () => {
   const { user, signOut } = useAuth();
-  const { theme, toggleTheme } = useSettings();
-  const [name, setName] = useState(user?.display_name || user?.user_metadata?.name || "");
-  useEffect(() => {
-    setName(user?.display_name || user?.user_metadata?.name || "");
-  }, [user?.id, user?.display_name, user?.user_metadata?.name]);
-  const [editVisible, setEditVisible] = useState(false);
-  const [requestVisible, setRequestVisible] = useState<"field" | "issue" | null>(null);
-  const [requestText, setRequestText] = useState("");
+  const { palette, theme, setTheme, language, setLanguage, tr, textAlign, dir, isRTL } = useSettings();
+  const styles = useMemo(() => makeStyles(palette), [palette]);
+  const rtl = useMemo(() => createRtl(isRTL), [isRTL]);
+  const nav = useNavigation<NativeStackNavigationProp<MainAppStackParamList>>();
 
-  const handleSaveProfile = () => {
-    Toast.show({ type: "success", text1: t.profile.saveSuccessToast });
-    setEditVisible(false);
-  };
+  const displayName = user?.display_name || user?.user_metadata?.name || tr("profile.guestName");
+  const phone = user?.phone || "—";
 
-  const handleSendRequest = () => {
-    Toast.show({ type: "success", text1: t.requests.success });
-    setRequestVisible(null);
-    setRequestText("");
+  const rows = [
+    { key: "wallet", title: tr("nav.wallet"), sub: tr("profile.walletSub"), icon: "wallet-outline", onPress: () => nav.navigate("Wallet") },
+    {
+      key: "platforms",
+      title: tr("profile.platformsTitle"),
+      sub: tr("profile.platformsSub"),
+      icon: "globe-outline",
+      onPress: () => nav.navigate("SocialPlatforms")
+    },
+    { key: "edit", title: tr("nav.editAccount"), sub: "", icon: "create-outline", onPress: () => nav.navigate("EditAccount") },
+    {
+      key: "field",
+      title: tr("nav.fieldDataRequest"),
+      sub: "",
+      icon: "document-text-outline",
+      onPress: () => nav.navigate("FieldDataRequest")
+    },
+    {
+      key: "support",
+      title: tr("nav.supportContact"),
+      sub: tr("profile.supportSub"),
+      icon: "chatbubbles-outline",
+      onPress: () => nav.navigate("SupportContact")
+    },
+    { key: "terms", title: tr("nav.terms"), sub: "", icon: "reader-outline", onPress: () => nav.navigate("TermsConditions") },
+    { key: "privacy", title: tr("nav.privacy"), sub: "", icon: "shield-checkmark-outline", onPress: () => nav.navigate("PrivacyPolicy") }
+  ] as const;
+  const appearanceLabel = theme === "dark" ? tr("profile.themeDark") : tr("profile.themeLight");
+  const appearanceIcon = theme === "dark" ? "moon-outline" : "sunny-outline";
+  const languageLabelMap: Record<AppLanguage, string> = {
+    ar: "🇸🇦 العربية",
+    ku: "🇮🇶 کوردی",
+    en: "🇺🇸 English"
   };
-
-  const handleLogout = async () => {
-    await signOut();
-  };
+  const languageCycle: AppLanguage[] = ["ar", "ku", "en"];
 
   return (
     <ScreenShell>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
-        <View style={styles.hero}>
-          <View style={[styles.avatar, cardElevation()]}>
-            <Ionicons name="person" size={40} color={colors.primary} />
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={[styles.scroll, { writingDirection: dir }]}>
+        <InputLayer>
+          <NeonHeroHeader
+            palette={palette}
+            title={tr("profile.title")}
+            rightAccessory={<Ionicons name="person-circle-outline" size={24} color="#FFFFFF" />}
+            compact
+          />
+
+          <View style={styles.glassShell}>
+            <SolidPanelFill palette={palette} />
+            <View style={styles.userCard}>
+              <Text style={[styles.userName, { textAlign, writingDirection: dir }]}>{displayName}</Text>
+              <Text style={[styles.userPhone, { textAlign, writingDirection: dir }]}>{phone}</Text>
+            </View>
           </View>
-          <Text style={styles.heroName}>{name || "—"}</Text>
-          <Text style={styles.heroSub}>{user?.phone || "—"}</Text>
-        </View>
 
-        <Text style={styles.pageTitle}>{t.profile.title}</Text>
-
-        <View style={[styles.card, cardElevation()]}>
-          <Text style={styles.sectionLabel}>{t.profile.dataSection}</Text>
-          <Text style={styles.label}>{t.profile.name}</Text>
-          <Text style={styles.value}>{name || "-"}</Text>
-          <Text style={styles.label}>{t.profile.phone}</Text>
-          <Text style={styles.value}>{user?.phone || "-"}</Text>
-          <Text style={styles.label}>{t.profile.fieldName}</Text>
-          <Text style={styles.value}>{t.profile.fieldNameExample}</Text>
-        </View>
-
-        <View style={[styles.card, cardElevation()]}>
-          <Text style={styles.sectionLabel}>{t.profile.settingsSection}</Text>
-          <TouchableOpacity style={styles.row} onPress={() => setEditVisible(true)} activeOpacity={0.7}>
-            <Text style={styles.rowText}>{t.profile.editProfile}</Text>
-            <Ionicons name="chevron-back" size={20} color={colors.textSubtle} />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.row} onPress={() => setRequestVisible("field")} activeOpacity={0.7}>
-            <Text style={styles.rowText}>{t.profile.requestFieldChange}</Text>
-            <Ionicons name="chevron-back" size={20} color={colors.textSubtle} />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.row} onPress={() => setRequestVisible("issue")} activeOpacity={0.7}>
-            <Text style={styles.rowText}>{t.profile.reportIssue}</Text>
-            <Ionicons name="chevron-back" size={20} color={colors.textSubtle} />
-          </TouchableOpacity>
-          <View style={styles.row}>
-            <Text style={styles.rowText}>{t.profile.darkMode}</Text>
-            <Switch
-              value={theme === "dark"}
-              onValueChange={toggleTheme}
-              trackColor={{ false: colors.border, true: colors.primarySoft }}
-              thumbColor={theme === "dark" ? colors.primary : colors.surfaceCard}
-            />
+          <View style={styles.glassShell}>
+            <SolidPanelFill palette={palette} />
+            {rows.map((row, idx) => (
+              <View key={row.key}>
+                <Pressable
+                  style={({ pressed }) => [styles.row, { flexDirection: rtl.row }, pressed && styles.pressed]}
+                  onPress={row.onPress}
+                >
+                  <Ionicons name={rtl.chevronForward} size={18} color={palette.textSubtle} />
+                  <View style={[styles.rowTextWrap, { alignItems: isRTL ? "flex-end" : "flex-start" }]}>
+                    <Text style={[styles.rowTitle, { textAlign, writingDirection: dir }]}>{row.title}</Text>
+                    {row.sub ? <Text style={[styles.rowSub, { textAlign, writingDirection: dir }]}>{row.sub}</Text> : null}
+                  </View>
+                  <View style={styles.rowIcon}>
+                    <Ionicons name={row.icon as keyof typeof Ionicons.glyphMap} size={19} color={palette.primary} />
+                  </View>
+                </Pressable>
+                {idx < rows.length - 1 ? <View style={styles.divider} /> : null}
+              </View>
+            ))}
           </View>
-          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout} activeOpacity={0.85}>
-            <Text style={styles.logoutText}>{t.auth.logout}</Text>
-          </TouchableOpacity>
-        </View>
+          <View style={styles.glassShell}>
+            <SolidPanelFill palette={palette} />
+            <Pressable
+              style={({ pressed }) => [styles.row, { flexDirection: rtl.row }, pressed && styles.pressed]}
+              onPress={() => setTheme(theme === "dark" ? "light" : "dark")}
+            >
+              <Ionicons name={rtl.chevronForward} size={18} color={palette.textSubtle} />
+              <View style={[styles.rowTextWrap, { alignItems: isRTL ? "flex-end" : "flex-start" }]}>
+                <Text style={[styles.rowTitle, { textAlign, writingDirection: dir }]}>{tr("profile.appearance")}</Text>
+                <Text style={[styles.rowSub, { textAlign, writingDirection: dir }]}>{appearanceLabel}</Text>
+              </View>
+              <View style={styles.rowIcon}>
+                <Ionicons name={appearanceIcon as keyof typeof Ionicons.glyphMap} size={19} color={palette.primary} />
+              </View>
+            </Pressable>
+            <View style={styles.divider} />
+            <Pressable
+              style={({ pressed }) => [styles.row, { flexDirection: rtl.row }, pressed && styles.pressed]}
+              onPress={() => {
+                const idx = languageCycle.indexOf(language);
+                const next = languageCycle[(idx + 1) % languageCycle.length];
+                setLanguage(next);
+              }}
+            >
+              <Ionicons name={rtl.chevronForward} size={18} color={palette.textSubtle} />
+              <View style={[styles.rowTextWrap, { alignItems: isRTL ? "flex-end" : "flex-start" }]}>
+                <Text style={[styles.rowTitle, { textAlign, writingDirection: dir }]}>{tr("profile.language")}</Text>
+                <Text style={[styles.rowSub, { textAlign, writingDirection: dir }]}>{languageLabelMap[language]}</Text>
+              </View>
+              <View style={styles.rowIcon}>
+                <Ionicons name="language-outline" size={19} color={palette.primary} />
+              </View>
+            </Pressable>
+            <View style={styles.divider} />
+            <Pressable
+              style={({ pressed }) => [styles.row, { flexDirection: rtl.row }, pressed && styles.pressed]}
+              onPress={() => nav.navigate("DeleteAccountPhone")}
+            >
+              <Ionicons name={rtl.chevronForward} size={18} color={palette.textSubtle} />
+              <View style={[styles.rowTextWrap, { alignItems: isRTL ? "flex-end" : "flex-start" }]}>
+                <Text style={[styles.rowTitle, styles.rowTitleDanger, { textAlign, writingDirection: dir }]}>
+                  {tr("profile.deleteAccount")}
+                </Text>
+              </View>
+              <View style={[styles.rowIcon, styles.rowIconDanger]}>
+                <Ionicons name="trash-outline" size={19} color="#FF5252" />
+              </View>
+            </Pressable>
+            <View style={styles.divider} />
+            <Pressable
+              style={({ pressed }) => [styles.row, { flexDirection: rtl.row }, pressed && styles.pressed]}
+              onPress={() => void signOut()}
+            >
+              <Ionicons name={rtl.chevronForward} size={18} color={palette.textSubtle} />
+              <View style={[styles.rowTextWrap, { alignItems: isRTL ? "flex-end" : "flex-start" }]}>
+                <Text style={[styles.rowTitle, styles.rowTitleDanger, { textAlign, writingDirection: dir }]}>
+                  {tr("profile.logout")}
+                </Text>
+              </View>
+              <View style={[styles.rowIcon, styles.rowIconDanger]}>
+                <Ionicons name="log-out-outline" size={19} color="#FF5252" />
+              </View>
+            </Pressable>
+          </View>
+        </InputLayer>
       </ScrollView>
-
-      <Modal visible={editVisible} transparent animationType="slide">
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>{t.profile.editProfile}</Text>
-            <TextInput
-              style={styles.input}
-              placeholder={t.profile.name}
-              value={name}
-              onChangeText={setName}
-              textAlign="right"
-              placeholderTextColor="#9CA3AF"
-            />
-            <View style={styles.modalActions}>
-              <TouchableOpacity style={[styles.modalButton, styles.modalCancel]} onPress={() => setEditVisible(false)}>
-                <Text style={styles.modalCancelText}>{t.profile.cancel}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.modalButton, styles.modalPrimary]} onPress={handleSaveProfile}>
-                <Text style={styles.modalPrimaryText}>{t.profile.save}</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      <Modal visible={!!requestVisible} transparent animationType="slide">
-        <View style={styles.modalBackdrop}>
-          <View style={styles.modalCard}>
-            <Text style={styles.modalTitle}>
-              {requestVisible === "field" ? t.requests.fieldChangeTitle : t.requests.issueTitle}
-            </Text>
-            <TextInput
-              style={[styles.input, { height: 120, textAlignVertical: "top" }]}
-              placeholder={t.requests.placeholder}
-              multiline
-              value={requestText}
-              onChangeText={setRequestText}
-              textAlign="right"
-              placeholderTextColor="#9CA3AF"
-            />
-            <View style={styles.modalActions}>
-              <TouchableOpacity style={[styles.modalButton, styles.modalCancel]} onPress={() => setRequestVisible(null)}>
-                <Text style={styles.modalCancelText}>{t.profile.cancel}</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={[styles.modalButton, styles.modalPrimary]} onPress={handleSendRequest}>
-                <Text style={styles.modalPrimaryText}>{t.requests.send}</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
     </ScreenShell>
   );
 };
-
-const styles = StyleSheet.create({
-  scroll: {
-    paddingBottom: 100,
-    paddingTop: spacing.sm
-  },
-  hero: {
-    alignItems: "center",
-    marginBottom: spacing.xl
-  },
-  avatar: {
-    width: 96,
-    height: 96,
-    borderRadius: 32,
-    backgroundColor: colors.primaryMuted,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: spacing.md,
-    borderWidth: 3,
-    borderColor: colors.surfaceCard
-  },
-  heroName: {
-    fontSize: 24,
-    fontWeight: "800",
-    color: colors.text,
-    letterSpacing: -0.3
-  },
-  heroSub: {
-    marginTop: 4,
-    fontSize: 14,
-    color: colors.textMuted,
-    fontWeight: "600"
-  },
-  pageTitle: {
-    fontSize: 22,
-    fontWeight: "800",
-    color: colors.text,
-    textAlign: "right",
-    marginBottom: spacing.md,
-    letterSpacing: -0.3
-  },
-  card: {
-    backgroundColor: colors.surfaceCard,
-    borderRadius: radius.lg,
-    padding: spacing.lg,
-    marginBottom: spacing.md + 2
-  },
-  sectionLabel: {
-    fontSize: 11,
-    fontWeight: "800",
-    color: colors.textSubtle,
-    textAlign: "right",
-    marginBottom: spacing.md,
-    letterSpacing: 0.6,
-    textTransform: "uppercase"
-  },
-  label: {
-    fontSize: 13,
-    color: colors.textMuted,
-    textAlign: "right",
-    fontWeight: "600"
-  },
-  value: {
-    fontSize: 16,
-    fontWeight: "800",
-    textAlign: "right",
-    marginBottom: spacing.md,
-    color: colors.text
-  },
-  row: {
-    flexDirection: "row-reverse",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: spacing.md,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border
-  },
-  rowText: {
-    fontSize: 15,
-    color: colors.text,
-    fontWeight: "600"
-  },
-  logoutButton: {
-    marginTop: spacing.sm,
-    backgroundColor: colors.dangerSoft,
-    borderRadius: radius.md,
-    paddingVertical: spacing.md + 2,
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "transparent"
-  },
-  logoutText: {
-    color: colors.danger,
-    fontWeight: "800",
-    fontSize: 15
-  },
-  modalBackdrop: {
-    flex: 1,
-    backgroundColor: colors.overlay,
-    justifyContent: "flex-end"
-  },
-  modalCard: {
-    backgroundColor: colors.surfaceCard,
-    borderTopLeftRadius: radius.xxl,
-    borderTopRightRadius: radius.xxl,
-    padding: spacing.xl
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: "800",
-    textAlign: "center",
-    marginBottom: spacing.lg,
-    color: colors.text,
-    letterSpacing: -0.3
-  },
-  input: {
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
-    fontSize: 16,
-    marginBottom: spacing.sm + 2,
-    backgroundColor: colors.surfaceMuted,
-    color: colors.text
-  },
-  modalActions: {
-    flexDirection: "row-reverse",
-    marginTop: spacing.sm + 2
-  },
-  modalButton: {
-    flex: 1,
-    borderRadius: radius.full,
-    paddingVertical: spacing.md,
-    alignItems: "center"
-  },
-  modalCancel: {
-    backgroundColor: colors.surfaceMuted,
-    marginLeft: spacing.sm
-  },
-  modalPrimary: {
-    backgroundColor: colors.primary
-  },
-  modalCancelText: {
-    color: colors.text,
-    fontWeight: "800"
-  },
-  modalPrimaryText: {
-    color: colors.textOnPrimary,
-    fontWeight: "800"
-  }
-});

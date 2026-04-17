@@ -1,61 +1,68 @@
 import { TextStyle } from "react-native";
 import { colors } from "./colors";
+import { fontFamily } from "./fonts";
 
+/** عناوين وأزرار: Bold (Cairo) — نصوص فرعية: Regular */
 export const typography: Record<string, TextStyle> = {
   brand: {
+    fontFamily: fontFamily.sansBold,
     fontSize: 11,
-    fontWeight: "800",
     letterSpacing: 2,
     color: colors.primaryDark,
     textAlign: "right"
   },
   h1: {
+    fontFamily: fontFamily.sansBold,
     fontSize: 28,
-    fontWeight: "800",
     letterSpacing: -0.6,
     color: colors.text,
     textAlign: "right"
   },
   h2: {
+    fontFamily: fontFamily.sansBold,
     fontSize: 22,
-    fontWeight: "800",
     color: colors.text,
     textAlign: "right"
   },
   h3: {
+    fontFamily: fontFamily.sansBold,
     fontSize: 18,
-    fontWeight: "800",
     color: colors.text,
     textAlign: "right"
   },
   subtitle: {
+    fontFamily: fontFamily.sansRegular,
     fontSize: 14,
-    fontWeight: "600",
     color: colors.textMuted,
     textAlign: "right",
     lineHeight: 21
   },
   body: {
+    fontFamily: fontFamily.sansRegular,
     fontSize: 15,
-    fontWeight: "500",
     color: colors.textSecondary,
     textAlign: "right",
     lineHeight: 22
   },
   caption: {
+    fontFamily: fontFamily.sansRegular,
     fontSize: 12,
-    fontWeight: "600",
     color: colors.textSubtle,
     textAlign: "right"
   },
   label: {
+    fontFamily: fontFamily.sansBold,
     fontSize: 13,
-    fontWeight: "700",
     color: colors.textSecondary,
     textAlign: "right"
   },
   button: {
-    fontSize: 16,
-    fontWeight: "800"
+    fontFamily: fontFamily.sansBold,
+    fontSize: 16
+  },
+  /** مبالغ وأرقام بصرياً أوضح */
+  numeric: {
+    fontFamily: fontFamily.latinBold,
+    fontSize: 16
   }
 };

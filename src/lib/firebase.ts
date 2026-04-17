@@ -1,57 +1,21 @@
-import { initializeApp, getApps, getApp, type FirebaseApp } from "firebase/app";
 import {
-  getAuth,
-  initializeAuth,
-  getReactNativePersistence,
   signInWithPhoneNumber,
   signOut as firebaseSignOut,
   onAuthStateChanged,
-  RecaptchaVerifier,
-  type Auth,
   type ConfirmationResult
 } from "firebase/auth";
 import { getFirestore, doc, setDoc, serverTimestamp, getDoc, updateDoc } from "firebase/firestore";
-import AsyncStorage from "@react-native-async-storage/async-storage";
-import { Platform } from "react-native";
-import { firebaseConfig, isFirebaseConfigured } from "../config/firebaseConfig";
 import { deriveOwnerIdFromUid } from "./ownerId";
+import { e164FromOtpLoginEmail } from "./phoneDial";
+import type { AppLanguage } from "../i18n";
+import {
+  firebaseConfig,
+  getFirebaseApp,
+  getFirebaseAuth,
+  isFirebaseConfigured
+} from "../../config/firebase.js";
 
-export { firebaseConfig };
-
-let firebaseAppSingleton: FirebaseApp | null = null;
-
-/**
- * تهيئة كسولة — لا تُستدعى `initializeApp` إلا عند الحاجة وبعد التحقق من الإعداد.
- * يمنع أعطال التحميل أو تهيئة مزدوجة عند غياب مفاتيح البيئة.
- */
-export function getFirebaseApp(): FirebaseApp {
-  if (!isFirebaseConfigured()) {
-    throw new Error("Firebase is not configured. Set EXPO_PUBLIC_FIREBASE_* in .env");
-  }
-  if (!firebaseAppSingleton) {
-    firebaseAppSingleton = getApps().length ? getApp() : initializeApp(firebaseConfig);
-  }
-  return firebaseAppSingleton;
-}
-
-let authInstance: Auth | null = null;
-
-export function getFirebaseAuth(): Auth {
-  if (authInstance) return authInstance;
-  const firebaseApp = getFirebaseApp();
-  if (Platform.OS === "web") {
-    authInstance = getAuth(firebaseApp);
-  } else {
-    try {
-      authInstance = initializeAuth(firebaseApp, {
-        persistence: getReactNativePersistence(AsyncStorage)
-      });
-    } catch {
-      authInstance = getAuth(firebaseApp);
-    }
-  }
-  return authInstance;
-}
+export { firebaseConfig, getFirebaseApp, getFirebaseAuth, isFirebaseConfigured };
 
 export function getFirestoreDb() {
   return getFirestore(getFirebaseApp());
@@ -59,55 +23,20 @@ export function getFirestoreDb() {
 
 export { signInWithPhoneNumber, firebaseSignOut, onAuthStateChanged, type ConfirmationResult };
 
-declare global {
-  interface Window {
-    recaptchaVerifier?: RecaptchaVerifier | null;
-  }
-}
-
-/** تنظيف reCAPTCHA الويب (عند فشل الإرسال أو إعادة الإنشاء) */
-export function clearWebRecaptchaVerifier(): void {
-  if (typeof window === "undefined") return;
-  const v = window.recaptchaVerifier;
-  if (v) {
-    try {
-      v.clear();
-    } catch {
-      /* ignore */
-    }
-    window.recaptchaVerifier = null;
-  }
-}
-
-/**
- * reCAPTCHA غير مرئي للويب — نسخة واحدة على window تطابق حاوية DOM #recaptcha-container.
- */
-export function getOrCreateWebRecaptchaVerifier(): RecaptchaVerifier | null {
-  if (typeof window === "undefined") return null;
-  if (Platform.OS !== "web") return null;
-
-  if (!window.recaptchaVerifier) {
-    const auth = getFirebaseAuth();
-    window.recaptchaVerifier = new RecaptchaVerifier(auth, "recaptcha-container", {
-      size: "invisible"
-    });
-  }
-  return window.recaptchaVerifier;
-}
-
 export type EnsureUserProfileOptions = {
   displayName?: string | null;
+  language?: AppLanguage | null;
+  /** بريد المستخدم في Firebase — يُستخرج منه الرقم إن كان بصيغة otp.*@shoota.local */
+  authEmail?: string | null;
 };
 
 export type SyncedUserProfile = {
   ownerId: string;
   displayName?: string | null;
   phone?: string | null;
+  language?: AppLanguage | null;
 };
 
-/**
- * ينشئ/يحدّث مستند `users/{uid}` مع ownerId مشتق من UID (مرة واحدة)، role: owner.
- */
 export async function ensureUserProfile(
   uid: string,
   phone: string | null,
@@ -117,14 +46,19 @@ export async function ensureUserProfile(
   const ref = doc(db, "users", uid);
   const snap = await getDoc(ref);
   const displayName = opts?.displayName?.trim() || null;
+  const language = opts?.language ?? null;
   const ownerId = deriveOwnerIdFromUid(uid);
+  const explicitPhone = phone?.trim() || null;
+  const fromEmail = e164FromOtpLoginEmail(opts?.authEmail ?? null);
+  const effectivePhone = explicitPhone || fromEmail;
 
   if (!snap.exists()) {
     await setDoc(ref, {
       uid,
       ownerId,
-      phone: phone ?? null,
+      phone: effectivePhone ?? null,
       ...(displayName ? { displayName } : {}),
+      ...(language ? { language } : {}),
       role: "owner",
       createdAt: serverTimestamp()
     });
@@ -140,8 +74,14 @@ export async function ensureUserProfile(
     if (displayName) {
       patch.displayName = displayName;
     }
+    if (language) {
+      patch.language = language;
+    }
     if (data.role == null || data.role === "") {
       patch.role = "owner";
+    }
+    if (effectivePhone && String(data.phone ?? "").trim() !== effectivePhone) {
+      patch.phone = effectivePhone;
     }
     if (Object.keys(patch).length > 0) {
       await updateDoc(ref, patch);
@@ -153,8 +93,19 @@ export async function ensureUserProfile(
   return {
     ownerId: typeof d?.ownerId === "string" ? d.ownerId : ownerId,
     displayName: (d?.displayName as string) ?? displayName ?? undefined,
-    phone: (d?.phone as string) ?? phone ?? null
+    phone: (d?.phone as string) ?? effectivePhone ?? null,
+    language: (d?.language as AppLanguage) ?? language ?? null
   };
 }
 
-export { isFirebaseConfigured };
+export async function updateUserLanguage(uid: string, language: AppLanguage): Promise<void> {
+  const db = getFirestoreDb();
+  const ref = doc(db, "users", uid);
+  await setDoc(
+    ref,
+    {
+      language
+    },
+    { merge: true }
+  );
+}

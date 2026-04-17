@@ -13,7 +13,7 @@ import {
   type DocumentReference,
   type QuerySnapshot
 } from "firebase/firestore";
-import { getFirestoreDb } from "./firebase";
+import { getFirestoreDb } from "./firebaseClient";
 import { isFirebaseConfigured } from "../config/firebaseConfig";
 import { FIELD_REQUESTS_COLLECTION } from "../services/fieldRequestService";
 import { t } from "../strings";

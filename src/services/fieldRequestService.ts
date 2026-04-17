@@ -1,5 +1,5 @@
 import { addDoc, collection, serverTimestamp } from "firebase/firestore";
-import { getFirestoreDb } from "../lib/firebase";
+import { getFirestoreDb } from "../lib/firebaseClient";
 import { isFirebaseConfigured } from "../config/firebaseConfig";
 
 export const FIELD_REQUESTS_COLLECTION = "field_requests" as const;
@@ -8,6 +8,8 @@ export const FIELD_REQUESTS_COLLECTION = "field_requests" as const;
 export type SubmitFieldRequestInput = {
   fieldName: string;
   location: string;
+  province: string;
+  fieldType: string;
   notes?: string;
   ownerId: string;
   /** نفس قيمة هوية المالك في النظام؛ تُعرض للمستخدم للقراءة فقط وتُحفظ مع الطلب */
@@ -24,6 +26,8 @@ export type SubmitFieldRequestResult = {
 export type FieldRequestValidationField =
   | "fieldName"
   | "location"
+  | "province"
+  | "fieldType"
   | "ownerId"
   | "ownerAccountId"
   | "userUid"
@@ -33,6 +37,8 @@ export type FieldRequestValidationField =
 export function validateFieldRequestInput(input: SubmitFieldRequestInput): FieldRequestValidationField | null {
   if (!input.fieldName?.trim()) return "fieldName";
   if (!input.location?.trim()) return "location";
+  if (!input.province?.trim()) return "province";
+  if (!input.fieldType?.trim()) return "fieldType";
   if (!input.ownerId?.trim()) return "ownerId";
   if (!input.ownerAccountId?.trim()) return "ownerAccountId";
   if (!input.userUid?.trim()) return "userUid";
@@ -55,6 +61,8 @@ export async function submitFieldRequest(input: SubmitFieldRequestInput): Promis
   const docRef = await addDoc(collection(db, FIELD_REQUESTS_COLLECTION), {
     fieldName: input.fieldName.trim(),
     location: input.location.trim(),
+    province: input.province.trim(),
+    fieldType: input.fieldType.trim(),
     notes: input.notes?.trim() ?? "",
     ownerId: input.ownerId.trim(),
     ownerAccountId: input.ownerAccountId.trim(),

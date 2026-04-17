@@ -1,8 +1,7 @@
-import React, { useCallback } from "react";
+import React, { useCallback, useMemo } from "react";
 import {
   View,
   Text,
-  StyleSheet,
   FlatList,
   Pressable,
   ActivityIndicator,
@@ -16,9 +15,9 @@ import { useQuery, useQueryClient, useMutation } from "@tanstack/react-query";
 import { Ionicons } from "@expo/vector-icons";
 import { ScreenShell } from "../components/ScreenShell";
 import { EmptyState } from "../components/EmptyState";
-import { colors } from "../theme/colors";
-import { radius, spacing, cardElevation } from "../theme/tokens";
-import { t } from "../strings";
+import { NeonHeroHeader } from "../components/ui/NeonHeroHeader";
+import { useSettings } from "../providers/SettingsProvider";
+import { makeFieldsStyles } from "./fieldsScreenStyles";
 import { isFirebaseConfigured } from "../config/firebaseConfig";
 import { useAuth } from "../providers/AuthProvider";
 import {
@@ -29,7 +28,10 @@ import {
 } from "../services/ownerFieldsFirestore";
 import { deriveOwnerIdFromUid } from "../lib/ownerId";
 import Toast from "react-native-toast-message";
+import { DailyScheduleSection } from "../components/DailyScheduleSection";
 export const FieldsScreen: React.FC = () => {
+  const { palette, tr } = useSettings();
+  const styles = useMemo(() => makeFieldsStyles(palette), [palette]);
   const { user } = useAuth();
   const navigation = useNavigation();
   const queryClient = useQueryClient();
@@ -48,7 +50,8 @@ export const FieldsScreen: React.FC = () => {
       const ownerPub = user!.ownerId ?? deriveOwnerIdFromUid(user!.id);
       return fetchMergedFieldsForUid(user!.id, ownerPub);
     },
-    enabled: canUse
+    enabled: canUse,
+    staleTime: 60_000
   });
 
   useFocusEffect(
@@ -62,23 +65,23 @@ export const FieldsScreen: React.FC = () => {
       setOwnerFieldStatus(id, status),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["ownerFields", uid] });
-      Toast.show({ type: "success", text1: t.common.done });
+      Toast.show({ type: "success", text1: tr("common.done") });
     },
     onError: () => {
-      Toast.show({ type: "error", text1: t.fields.loadError });
+      Toast.show({ type: "error", text1: tr("fields.loadError") });
     }
   });
 
   const statusLabel = (s: FieldOperationalStatus) => {
-    if (s === "closed") return t.fields.statusClosed;
-    if (s === "maintenance") return t.fields.statusMaintenance;
-    return t.fields.statusOpen;
+    if (s === "closed") return tr("fields.statusClosed");
+    if (s === "maintenance") return tr("fields.statusMaintenance");
+    return tr("fields.statusOpen");
   };
 
   const statusColor = (s: FieldOperationalStatus) => {
-    if (s === "closed") return colors.danger;
-    if (s === "maintenance") return colors.accent;
-    return colors.primary;
+    if (s === "closed") return palette.danger;
+    if (s === "maintenance") return palette.accent;
+    return palette.primary;
   };
 
   const openMenu = (item: OwnerFieldDoc) => {
@@ -89,7 +92,7 @@ export const FieldsScreen: React.FC = () => {
       if (Platform.OS === "ios") {
         ActionSheetIOS.showActionSheetWithOptions(
           {
-            options: [t.fields.actionManage, t.common.cancel],
+            options: [tr("fields.actionManage"), tr("common.cancel")],
             cancelButtonIndex: 1,
             title: item.name
           },
@@ -99,8 +102,8 @@ export const FieldsScreen: React.FC = () => {
         );
       } else {
         Alert.alert(item.name, "", [
-          { text: t.fields.actionManage, onPress: goManage },
-          { text: t.common.cancel, style: "cancel" }
+          { text: tr("fields.actionManage"), onPress: goManage },
+          { text: tr("common.cancel"), style: "cancel" }
         ]);
       }
       return;
@@ -110,11 +113,11 @@ export const FieldsScreen: React.FC = () => {
       ActionSheetIOS.showActionSheetWithOptions(
         {
           options: [
-            t.fields.actionClose,
-            t.fields.actionMaintenance,
-            t.fields.actionOpen,
-            t.fields.actionManage,
-            t.common.cancel
+            tr("fields.actionClose"),
+            tr("fields.actionMaintenance"),
+            tr("fields.actionOpen"),
+            tr("fields.actionManage"),
+            tr("common.cancel")
           ],
           cancelButtonIndex: 4,
           title: item.name
@@ -127,15 +130,15 @@ export const FieldsScreen: React.FC = () => {
         }
       );
     } else {
-      Alert.alert(item.name, t.fields.menuTitle, [
-        { text: t.fields.actionClose, onPress: () => statusMutation.mutate({ id: item.id, status: "closed" }) },
+      Alert.alert(item.name, tr("fields.menuTitle"), [
+        { text: tr("fields.actionClose"), onPress: () => statusMutation.mutate({ id: item.id, status: "closed" }) },
         {
-          text: t.fields.actionMaintenance,
+          text: tr("fields.actionMaintenance"),
           onPress: () => statusMutation.mutate({ id: item.id, status: "maintenance" })
         },
-        { text: t.fields.actionOpen, onPress: () => statusMutation.mutate({ id: item.id, status: "open" }) },
-        { text: t.fields.actionManage, onPress: goManage },
-        { text: t.common.cancel, style: "cancel" }
+        { text: tr("fields.actionOpen"), onPress: () => statusMutation.mutate({ id: item.id, status: "open" }) },
+        { text: tr("fields.actionManage"), onPress: goManage },
+        { text: tr("common.cancel"), style: "cancel" }
       ]);
     }
   };
@@ -144,8 +147,8 @@ export const FieldsScreen: React.FC = () => {
     return (
       <ScreenShell>
         <View style={styles.pad}>
-          <Text style={styles.title}>{t.fields.title}</Text>
-          <EmptyState icon="lock-closed-outline" title={t.bookings.emptyTitle} subtitle={t.bookings.loginRequiredBookings} />
+          <Text style={styles.title}>{tr("fields.title")}</Text>
+          <EmptyState icon="lock-closed-outline" title={tr("home.emptyTitle")} subtitle={tr("home.loginRequiredBookings")} />
         </View>
       </ScreenShell>
     );
@@ -155,19 +158,8 @@ export const FieldsScreen: React.FC = () => {
     return (
       <ScreenShell>
         <View style={styles.pad}>
-          <Text style={styles.title}>{t.fields.title}</Text>
-          <EmptyState icon="cloud-offline-outline" title={t.fields.needFirebase} subtitle={t.fields.needFirebase} />
-        </View>
-      </ScreenShell>
-    );
-  }
-
-  if (isPending && fields.length === 0) {
-    return (
-      <ScreenShell>
-        <View style={[styles.center, styles.flex]}>
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={styles.loading}>{t.common.loading}</Text>
+          <Text style={styles.title}>{tr("fields.title")}</Text>
+          <EmptyState icon="cloud-offline-outline" title={tr("fields.needFirebase")} subtitle={tr("fields.needFirebase")} />
         </View>
       </ScreenShell>
     );
@@ -177,10 +169,10 @@ export const FieldsScreen: React.FC = () => {
     return (
       <ScreenShell>
         <View style={styles.pad}>
-          <Text style={styles.title}>{t.fields.title}</Text>
-          <EmptyState icon="alert-circle-outline" title={t.fields.loadError} subtitle="" />
+          <Text style={styles.title}>{tr("fields.title")}</Text>
+          <EmptyState icon="alert-circle-outline" title={tr("fields.loadError")} subtitle="" />
           <Pressable style={styles.retry} onPress={() => refetch()}>
-            <Text style={styles.retryText}>{t.common.tryAgain}</Text>
+            <Text style={styles.retryText}>{tr("common.tryAgain")}</Text>
           </Pressable>
         </View>
       </ScreenShell>
@@ -190,106 +182,82 @@ export const FieldsScreen: React.FC = () => {
   return (
     <ScreenShell>
       <View style={styles.root}>
-        <View style={styles.header}>
-          <Text style={styles.title}>{t.fields.title}</Text>
-          <Text style={styles.sub}>{t.fields.subtitle}</Text>
-        </View>
+        <NeonHeroHeader
+          palette={palette}
+          title={tr("fields.title")}
+          rightAccessory={<Ionicons name="football" size={24} color="#FFFFFF" />}
+          compact
+        />
         <FlatList
           data={fields}
           keyExtractor={(item) => item.id}
           contentContainerStyle={fields.length === 0 ? styles.listEmpty : styles.list}
           refreshControl={
-            <RefreshControl refreshing={isRefetching} onRefresh={() => refetch()} tintColor={colors.primary} />
+            <RefreshControl refreshing={isRefetching} onRefresh={() => refetch()} tintColor={palette.primary} />
           }
+          ListHeaderComponent={<DailyScheduleSection />}
           ListEmptyComponent={
-            <EmptyState icon="football-outline" title={t.fields.emptyTitle} subtitle={t.fields.emptySubtitle} />
-          }
-          renderItem={({ item }) => (
-            <View style={[styles.card, cardElevation(true)]}>
-              <View style={styles.cardTop}>
-                <View style={styles.cardText}>
-                  <Text style={styles.fieldName}>{item.name}</Text>
-                  {item.location ? <Text style={styles.loc}>{item.location}</Text> : null}
-                  {item.fieldSize ? (
-                    <Text style={styles.loc}>
-                      {t.fields.fieldSizeShort}: {item.fieldSize}
-                    </Text>
-                  ) : null}
-                  {item.source === "dashboard" ? (
-                    <Text style={styles.dashBadge}>{t.fields.dashboardFieldBadge}</Text>
-                  ) : null}
-                  <Text style={[styles.badge, { color: statusColor(item.status) }]}>{statusLabel(item.status)}</Text>
-                </View>
-                <Pressable
-                  hitSlop={12}
-                  onPress={() => openMenu(item)}
-                  style={({ pressed }) => [styles.menuBtn, pressed && { opacity: 0.7 }]}
-                >
-                  <Ionicons name="ellipsis-horizontal-circle" size={28} color={colors.primary} />
-                </Pressable>
+            isPending ? (
+              <View style={[styles.center, { paddingVertical: 48 }]}>
+                <ActivityIndicator size="large" color={palette.primary} />
+                <Text style={styles.loading}>{tr("common.loading")}</Text>
               </View>
-              <Pressable
-                style={styles.manageLink}
-                onPress={() =>
-                  navigation.getParent()?.navigate("FieldManage", { fieldId: item.id, fieldName: item.name })
-                }
-              >
-                <Text style={styles.manageLinkText}>{t.fields.actionManage}</Text>
-                <Ionicons name="chevron-back" size={18} color={colors.primary} />
-              </Pressable>
-            </View>
-          )}
+            ) : (
+              <EmptyState icon="football-outline" title={tr("fields.emptyTitle")} subtitle={tr("fields.emptySubtitle")} />
+            )
+          }
+          renderItem={({ item }) => {
+            const isOpen = item.status === "open";
+            return (
+              <View style={styles.cardShell}>
+                <View
+                  style={[
+                    styles.cardFill,
+                    palette.scheme === "dark" ? styles.cardFillDark : styles.cardFillLight
+                  ]}
+                  pointerEvents="none"
+                />
+                <View style={styles.cardInner}>
+                  <View style={styles.cardTop}>
+                    <View style={styles.cardText}>
+                      <Text style={styles.fieldName}>{item.name}</Text>
+                      {item.location ? <Text style={styles.loc}>{item.location}</Text> : null}
+                      {item.fieldSize ? (
+                        <Text style={styles.loc}>
+                          {tr("fields.fieldSizeShort")}: {item.fieldSize}
+                        </Text>
+                      ) : null}
+                      {item.source === "dashboard" ? (
+                        <Text style={styles.dashBadge}>{tr("fields.dashboardFieldBadge")}</Text>
+                      ) : null}
+                      <Pressable
+                        onPress={() => openMenu(item)}
+                        hitSlop={{ top: 8, bottom: 8, left: 16, right: 16 }}
+                        style={({ pressed }) => [pressed && { opacity: 0.85 }]}
+                      >
+                        <Text
+                          style={[styles.badge, isOpen ? styles.badgeOpen : { color: statusColor(item.status) }]}
+                        >
+                          {statusLabel(item.status)}
+                        </Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                  <Pressable
+                    style={styles.manageLink}
+                    onPress={() =>
+                      navigation.getParent()?.navigate("FieldManage", { fieldId: item.id, fieldName: item.name })
+                    }
+                  >
+                    <Text style={styles.manageLinkText}>{tr("fields.actionManage")}</Text>
+                    <Ionicons name="chevron-back" size={18} color={palette.primary} />
+                  </Pressable>
+                </View>
+              </View>
+            );
+          }}
         />
       </View>
     </ScreenShell>
   );
 };
-
-const styles = StyleSheet.create({
-  root: { flex: 1, paddingTop: spacing.sm },
-  pad: { padding: spacing.lg },
-  flex: { flex: 1 },
-  center: { justifyContent: "center", alignItems: "center" },
-  loading: { marginTop: 12, color: colors.textMuted, fontWeight: "600" },
-  header: { paddingHorizontal: spacing.lg, marginBottom: spacing.md },
-  title: { fontSize: 28, fontWeight: "800", color: colors.text, textAlign: "right" },
-  sub: { marginTop: 6, fontSize: 14, color: colors.textMuted, textAlign: "right", lineHeight: 20 },
-  list: { paddingHorizontal: spacing.lg, paddingBottom: 120 },
-  listEmpty: { flexGrow: 1, paddingHorizontal: spacing.lg, paddingBottom: 120 },
-  card: {
-    backgroundColor: colors.surfaceCard,
-    borderRadius: radius.lg,
-    padding: spacing.lg,
-    marginBottom: spacing.md
-  },
-  cardTop: { flexDirection: "row-reverse", alignItems: "flex-start", justifyContent: "space-between" },
-  cardText: { flex: 1 },
-  fieldName: { fontSize: 18, fontWeight: "800", color: colors.text, textAlign: "right" },
-  loc: { fontSize: 13, color: colors.textMuted, textAlign: "right", marginTop: 4 },
-  dashBadge: {
-    marginTop: 6,
-    fontSize: 12,
-    fontWeight: "800",
-    color: colors.primaryDark,
-    textAlign: "right"
-  },
-  badge: { marginTop: 8, fontSize: 13, fontWeight: "700", textAlign: "right" },
-  menuBtn: { padding: 4 },
-  manageLink: {
-    flexDirection: "row-reverse",
-    alignItems: "center",
-    justifyContent: "flex-end",
-    marginTop: spacing.md,
-    gap: 6
-  },
-  manageLinkText: { fontSize: 15, fontWeight: "800", color: colors.primary },
-  retry: {
-    alignSelf: "center",
-    marginTop: spacing.lg,
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.sm,
-    backgroundColor: colors.surfaceMuted,
-    borderRadius: radius.full
-  },
-  retryText: { color: colors.primary, fontWeight: "700" }
-});

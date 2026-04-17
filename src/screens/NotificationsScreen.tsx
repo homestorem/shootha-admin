@@ -1,20 +1,22 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
-  StyleSheet,
   FlatList,
   TouchableOpacity,
   ActivityIndicator,
-  RefreshControl
+  RefreshControl,
+  Platform,
+  StyleSheet
 } from "react-native";
+import { NeonHeroHeader } from "../components/ui/NeonHeroHeader";
+import { Ionicons } from "@expo/vector-icons";
 import { useMutation } from "@tanstack/react-query";
 import dayjs from "../lib/dayjs";
-import { t } from "../strings";
 import { ScreenShell } from "../components/ScreenShell";
 import { EmptyState } from "../components/EmptyState";
-import { colors } from "../theme/colors";
-import { cardElevation, radius, spacing } from "../theme/tokens";
+import { useSettings } from "../providers/SettingsProvider";
+import { makeNotificationsStyles } from "./notificationsScreenStyles";
 import { useAuth } from "../providers/AuthProvider";
 import {
   fetchNotificationsForUser,
@@ -29,8 +31,34 @@ import { deriveOwnerIdFromUid } from "../lib/ownerId";
 import { useNavigation } from "@react-navigation/native";
 import type { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
 import type { MainTabParamList } from "../navigation/AppNavigator";
+import { spacing } from "../theme/tokens";
+import { rtl } from "../utils/rtl";
+
+function notificationVisuals(type: NotificationRow["type"], primary: string) {
+  const t = type ?? "system";
+  switch (t) {
+    case "booking":
+      return {
+        icon: "calendar" as const,
+        iconColor: primary
+      };
+    case "approval":
+      return {
+        icon: "checkmark-done-circle" as const,
+        iconColor: "#FFC107"
+      };
+    case "system":
+    default:
+      return {
+        icon: "sparkles" as const,
+        iconColor: "#9E9E9E"
+      };
+  }
+}
 
 export const NotificationsScreen: React.FC = () => {
+  const { palette, tr } = useSettings();
+  const styles = useMemo(() => makeNotificationsStyles(palette), [palette]);
   const navigation = useNavigation<BottomTabNavigationProp<MainTabParamList>>();
   const { user } = useAuth();
   const userId = user?.id;
@@ -38,7 +66,6 @@ export const NotificationsScreen: React.FC = () => {
   const ownerPublicId = user?.ownerId ?? (userId ? deriveOwnerIdFromUid(userId) : "");
 
   const [rows, setRows] = useState<NotificationRow[]>([]);
-  const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<Error | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [retryKey, setRetryKey] = useState(0);
@@ -46,13 +73,11 @@ export const NotificationsScreen: React.FC = () => {
 
   useEffect(() => {
     if (!userId || !isFirebaseConfigured()) {
-      setLoading(false);
       setRows([]);
       setLoadError(null);
       return;
     }
 
-    setLoading(true);
     setLoadError(null);
 
     const unsub = subscribeNotificationsForUser(
@@ -60,12 +85,10 @@ export const NotificationsScreen: React.FC = () => {
       ownerPublicId || null,
       (next) => {
         setRows(next);
-        setLoading(false);
         setLoadError(null);
       },
       (e) => {
         setLoadError(e);
-        setLoading(false);
       }
     );
 
@@ -90,10 +113,10 @@ export const NotificationsScreen: React.FC = () => {
   const markAllMutation = useMutation({
     mutationFn: () => markAllNotificationsReadForUser(userId!, ownerPublicId || null),
     onSuccess: () => {
-      Toast.show({ type: "success", text1: t.notifications.allUpdatedToast });
+      Toast.show({ type: "success", text1: tr("notifications.allUpdatedToast") });
     },
     onError: (e: unknown) => {
-      const msg = e instanceof Error ? e.message : t.notifications.loadError;
+      const msg = e instanceof Error ? e.message : tr("notifications.loadError");
       Toast.show({ type: "error", text1: msg });
     }
   });
@@ -106,7 +129,6 @@ export const NotificationsScreen: React.FC = () => {
   const unreadCount = items.filter((n) => !n.is_read).length;
 
   useEffect(() => {
-    if (loading && items.length === 0) return;
     const prev = notificationBaselineRef.current;
     notificationBaselineRef.current = items;
     if (prev === null) return;
@@ -117,8 +139,8 @@ export const NotificationsScreen: React.FC = () => {
       if (n.type !== "booking" || n.is_read) continue;
       Toast.show({
         type: "info",
-        text1: t.notifications.newBookingToastTitle,
-        text2: n.title || t.notifications.newBookingToastSub,
+        text1: tr("notifications.newBookingToastTitle"),
+        text2: n.title || tr("notifications.newBookingToastSub"),
         visibilityTime: 5000,
         onPress: () => {
           Toast.hide();
@@ -129,58 +151,73 @@ export const NotificationsScreen: React.FC = () => {
         }
       });
     }
-  }, [items, loading, navigation]);
+  }, [items, navigation]);
 
   const notificationTypeLabel = (type: NotificationRow["type"]): string | null => {
-    if (type === "booking") return t.notifications.typeBooking;
-    if (type === "approval") return t.notifications.typeApproval;
-    if (type === "system") return t.notifications.typeSystem;
+    if (type === "booking") return tr("notifications.typeBooking");
+    if (type === "approval") return tr("notifications.typeApproval");
+    if (type === "system" || type == null) return tr("notifications.typeSystem");
     return null;
   };
 
   const showNoAuth = !userId;
   const showNoEnv = !isFirebaseConfigured();
 
+  const heroSubtitle =
+    unreadCount > 0
+      ? `${unreadCount} ${tr("notifications.unreadSuffix")}`
+      : tr("notifications.noNewAlerts");
+
+  const markAllFooter =
+    items.length > 0 && unreadCount > 0 ? (
+      <TouchableOpacity
+        onPress={() => {
+          if (markAllMutation.isPending || !userId) return;
+          markAllMutation.mutate();
+        }}
+        hitSlop={12}
+        style={styles.markAllPill}
+        activeOpacity={0.88}
+      >
+        {markAllMutation.isPending ? (
+          <ActivityIndicator size="small" color={palette.primaryDeep} />
+        ) : (
+          <>
+            <Ionicons name="checkmark-done" size={16} color={palette.primaryDeep} />
+            <Text style={styles.markAllPillText}>{tr("notifications.markAllRead")}</Text>
+          </>
+        )}
+      </TouchableOpacity>
+    ) : undefined;
+
   const listHeader = (
-    <View style={styles.headerRow}>
-      <View>
-        <Text style={styles.title}>{t.notifications.title}</Text>
-        <Text style={styles.sub}>
-          {unreadCount > 0
-            ? `${unreadCount} ${t.notifications.unreadSuffix}`
-            : t.notifications.noNewAlerts}
-        </Text>
-      </View>
-      {items.length > 0 && unreadCount > 0 && (
-        <TouchableOpacity
-          onPress={() => userId && markAllMutation.mutate()}
-          disabled={markAllMutation.isPending}
-          hitSlop={12}
-        >
-          {markAllMutation.isPending ? (
-            <ActivityIndicator size="small" color={colors.primary} />
-          ) : (
-            <Text style={styles.markAll}>{t.notifications.markAllRead}</Text>
-          )}
-        </TouchableOpacity>
-      )}
-    </View>
+    <NeonHeroHeader
+      palette={palette}
+      title={tr("notifications.title")}
+      subtitle={heroSubtitle}
+      rightAccessory={<Ionicons name="notifications" size={22} color="rgba(255,255,255,0.95)" />}
+      footer={markAllFooter}
+    />
+  );
+
+  const simpleHero = (subtitle: string) => (
+    <NeonHeroHeader
+      palette={palette}
+      title={tr("notifications.title")}
+      subtitle={subtitle}
+      rightAccessory={<Ionicons name="notifications" size={22} color="rgba(255,255,255,0.95)" />}
+    />
   );
 
   if (showNoAuth) {
     return (
       <ScreenShell>
         <View style={styles.root}>
-          <View style={styles.headerRow}>
-            <View>
-              <Text style={styles.title}>{t.notifications.title}</Text>
-              <Text style={styles.sub}>{t.notifications.loginRequiredSubtitle}</Text>
-            </View>
-          </View>
+          {simpleHero(tr("notifications.loginRequiredSubtitle"))}
           <EmptyState
             icon="lock-closed-outline"
-            title={t.notifications.guestEmptyTitle}
-            subtitle={t.notifications.loginRequiredSubtitle}
+            title={tr("notifications.guestEmptyTitle")}
+            subtitle={tr("notifications.loginRequiredSubtitle")}
           />
         </View>
       </ScreenShell>
@@ -191,23 +228,12 @@ export const NotificationsScreen: React.FC = () => {
     return (
       <ScreenShell>
         <View style={styles.root}>
-          <Text style={styles.title}>{t.notifications.title}</Text>
+          {simpleHero(tr("notifications.needBackendSync"))}
           <EmptyState
             icon="settings-outline"
-            title={t.notifications.emptyStateBackendTitle}
-            subtitle={t.notifications.needBackendSync}
+            title={tr("notifications.emptyStateBackendTitle")}
+            subtitle={tr("notifications.needBackendSync")}
           />
-        </View>
-      </ScreenShell>
-    );
-  }
-
-  if (loading && items.length === 0) {
-    return (
-      <ScreenShell>
-        <View style={[styles.root, styles.center]}>
-          <ActivityIndicator size="large" color={colors.primary} />
-          <Text style={styles.loadingText}>{t.common.loading}</Text>
         </View>
       </ScreenShell>
     );
@@ -217,14 +243,14 @@ export const NotificationsScreen: React.FC = () => {
     return (
       <ScreenShell>
         <View style={styles.root}>
-          <Text style={styles.title}>{t.notifications.title}</Text>
+          {simpleHero(tr("notifications.loadError"))}
           <EmptyState
             icon="alert-circle-outline"
-            title={t.notifications.loadError}
+            title={tr("notifications.loadError")}
             subtitle={loadError.message}
           />
-          <TouchableOpacity style={styles.retryBtn} onPress={refetch}>
-            <Text style={styles.retryText}>{t.common.tryAgain}</Text>
+          <TouchableOpacity style={styles.retryBtn} onPress={refetch} activeOpacity={0.88}>
+            <Text style={styles.retryText}>{tr("common.tryAgain")}</Text>
           </TouchableOpacity>
         </View>
       </ScreenShell>
@@ -240,51 +266,116 @@ export const NotificationsScreen: React.FC = () => {
           keyExtractor={(item) => String(item.id)}
           ListHeaderComponent={listHeader}
           ListEmptyComponent={
-            <EmptyState
-              icon="notifications-outline"
-              title={t.notifications.emptyTitle}
-              subtitle={t.notifications.emptySubtitle}
-            />
+            <View style={{ paddingTop: spacing.sm }}>
+              <EmptyState
+                icon="notifications-outline"
+                title={tr("notifications.emptyTitle")}
+                subtitle={tr("notifications.emptySubtitle")}
+              />
+            </View>
           }
           contentContainerStyle={styles.listPadGrow}
           showsVerticalScrollIndicator={false}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={() => void onRefresh()} tintColor={colors.primary} />
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => void onRefresh()}
+              tintColor={palette.primary}
+              colors={[palette.primary]}
+            />
           }
           renderItem={({ item }) => {
             const read = Boolean(item.is_read);
             const typeLabel = notificationTypeLabel(item.type);
             const canOpenBooking = item.type === "booking" && Boolean(item.booking_ui_id);
             const rowDisabled = markOneMutation.isPending || (read && !canOpenBooking);
+            const visuals = notificationVisuals(item.type, palette.primary);
+            const isDark = palette.scheme === "dark";
+            const nt = item.type ?? "system";
+            const pillBooking = nt === "booking";
+            const pillApproval = nt === "approval";
+            const pillSystem = nt === "system";
             return (
-              <TouchableOpacity
-                activeOpacity={0.85}
-                disabled={rowDisabled}
-                onPress={() => {
-                  if (canOpenBooking && item.booking_ui_id) {
-                    navigation.navigate("Home", { openBookingId: item.booking_ui_id });
+              <View style={styles.itemOuter}>
+                <TouchableOpacity
+                  activeOpacity={0.88}
+                  disabled={rowDisabled}
+                  onPress={() => {
+                    if (rowDisabled) return;
+                    if (canOpenBooking && item.booking_ui_id) {
+                      navigation.navigate("Home", { openBookingId: item.booking_ui_id });
+                      if (!read) markOneMutation.mutate(item.id);
+                      return;
+                    }
                     if (!read) markOneMutation.mutate(item.id);
-                    return;
-                  }
-                  if (!read) markOneMutation.mutate(item.id);
-                }}
-              >
-                <View style={[cardElevation(), styles.card, !read && styles.cardUnread]}>
-                  <View style={styles.cardHeader}>
-                    <Text style={styles.cardTitle} numberOfLines={2}>
-                      {item.title}
-                    </Text>
-                    <Text style={styles.cardTime}>
-                      {item.created_at ? dayjs(item.created_at).fromNow() : ""}
-                    </Text>
+                  }}
+                >
+                  <View style={[styles.cardShell, !read && styles.cardShellUnread]}>
+                    <View
+                      style={[
+                        styles.cardTintBase,
+                        isDark ? styles.cardTintDark : styles.cardTintLight,
+                        nt === "approval" && styles.cardTintWarning
+                      ]}
+                      pointerEvents="none"
+                    />
+                    {nt === "booking" ? <View style={styles.accentStripe} /> : null}
+                    <View style={styles.cardInner}>
+                      <View style={styles.itemRow}>
+                        <View style={styles.itemMain}>
+                          <Text
+                            style={[styles.itemTitle, !read && { fontWeight: "900" }]}
+                            numberOfLines={2}
+                          >
+                            {item.title}
+                          </Text>
+                          {item.body ? <Text style={styles.itemBody}>{item.body}</Text> : null}
+                          <View style={styles.itemMeta}>
+                            {typeLabel ? (
+                              <View
+                                style={[
+                                  styles.typePill,
+                                  pillBooking && styles.typePillBooking,
+                                  pillApproval && styles.typePillApproval,
+                                  pillSystem && styles.typePillSystem
+                                ]}
+                              >
+                                <Text
+                                  style={[
+                                    styles.typePillText,
+                                    pillBooking && styles.typePillBookingText,
+                                    pillApproval && styles.typePillApprovalText,
+                                    pillSystem && styles.typePillSystemText
+                                  ]}
+                                >
+                                  {typeLabel}
+                                </Text>
+                              </View>
+                            ) : null}
+                            <View style={styles.timeWrap}>
+                              <Ionicons name="time-outline" size={13} color="#9E9E9E" />
+                              <Text style={styles.timeText}>
+                                {item.created_at ? dayjs(item.created_at).fromNow() : "—"}
+                              </Text>
+                            </View>
+                            {canOpenBooking ? (
+                              <View style={styles.ctaInline}>
+                                <Ionicons name={rtl.chevronForward} size={14} color={palette.primary} />
+                                <Text style={styles.ctaText} numberOfLines={1}>
+                                  {tr("notifications.openBookingHint")}
+                                </Text>
+                              </View>
+                            ) : null}
+                          </View>
+                        </View>
+                        <View style={styles.iconCircle}>
+                          <Ionicons name={visuals.icon} size={20} color={visuals.iconColor} />
+                        </View>
+                      </View>
+                    </View>
                   </View>
-                  <Text style={styles.cardBody}>{item.body}</Text>
-                  {canOpenBooking ? (
-                    <Text style={styles.openHint}>{t.notifications.openBookingHint}</Text>
-                  ) : null}
-                  {typeLabel ? <Text style={styles.typeTag}>{typeLabel}</Text> : null}
-                </View>
-              </TouchableOpacity>
+                </TouchableOpacity>
+              </View>
             );
           }}
         />
@@ -292,118 +383,3 @@ export const NotificationsScreen: React.FC = () => {
     </ScreenShell>
   );
 };
-
-const styles = StyleSheet.create({
-  center: {
-    justifyContent: "center",
-    alignItems: "center",
-    flex: 1
-  },
-  loadingText: {
-    marginTop: 12,
-    color: colors.textMuted,
-    fontWeight: "600"
-  },
-  retryBtn: {
-    marginTop: spacing.lg,
-    alignSelf: "center",
-    paddingHorizontal: spacing.xl,
-    paddingVertical: spacing.sm + 2,
-    backgroundColor: colors.surfaceMuted,
-    borderRadius: radius.full,
-    borderWidth: 1,
-    borderColor: colors.border
-  },
-  retryText: {
-    color: colors.primary,
-    fontWeight: "700"
-  },
-  root: {
-    flex: 1,
-    paddingTop: 8
-  },
-  list: {
-    flex: 1
-  },
-  headerRow: {
-    flexDirection: "row-reverse",
-    alignItems: "flex-start",
-    justifyContent: "space-between",
-    marginBottom: 8,
-    paddingTop: 8
-  },
-  title: {
-    fontSize: 28,
-    fontWeight: "800",
-    color: colors.text,
-    textAlign: "right",
-    letterSpacing: -0.5
-  },
-  sub: {
-    marginTop: 4,
-    fontSize: 14,
-    color: colors.textMuted,
-    textAlign: "right",
-    fontWeight: "500"
-  },
-  markAll: {
-    fontSize: 14,
-    color: colors.primary,
-    fontWeight: "700",
-    marginTop: 6
-  },
-  listPadGrow: {
-    paddingBottom: 100,
-    paddingTop: spacing.sm,
-    flexGrow: 1
-  },
-  card: {
-    backgroundColor: colors.surfaceCard,
-    borderRadius: radius.lg,
-    padding: spacing.lg,
-    marginBottom: spacing.md
-  },
-  cardUnread: {
-    borderColor: colors.primary,
-    borderWidth: 2
-  },
-  cardHeader: {
-    flexDirection: "row-reverse",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    marginBottom: 8
-  },
-  cardTitle: {
-    fontSize: 16,
-    fontWeight: "800",
-    textAlign: "right",
-    flex: 1,
-    color: colors.text
-  },
-  cardTime: {
-    fontSize: 12,
-    color: colors.textSubtle,
-    fontWeight: "700"
-  },
-  cardBody: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    textAlign: "right",
-    lineHeight: 22,
-    fontWeight: "500"
-  },
-  typeTag: {
-    marginTop: spacing.sm,
-    fontSize: 11,
-    color: colors.textSubtle,
-    textAlign: "right",
-    fontWeight: "700"
-  },
-  openHint: {
-    marginTop: spacing.sm,
-    fontSize: 12,
-    color: colors.primary,
-    textAlign: "right",
-    fontWeight: "700"
-  }
-});

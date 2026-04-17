@@ -8,7 +8,7 @@ import {
   getFirebaseApp,
   getFirebaseAuth,
   isFirebaseConfigured
-} from "../lib/firebase";
+} from "../lib/firebaseClient";
 
 export { firebaseConfig, isFirebaseConfigured, getFirebaseApp, getFirebaseAuth };
 
@@ -25,7 +25,7 @@ let authSingleton: Auth | null = null;
 
 function ensureAuth(): Auth {
   if (!authSingleton) authSingleton = getFirebaseAuth();
-  return authSingleton;
+  return authSingleton as Auth;
 }
 
 /** نفس `getAuth(app)` — للاستخدام مع واجهات Firebase المعيارية */

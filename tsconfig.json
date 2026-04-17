@@ -4,14 +4,16 @@
     "module": "esnext",
     "jsx": "react-native",
     "strict": true,
-    "moduleResolution": "node",
+    "moduleResolution": "bundler",
     "allowSyntheticDefaultImports": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
+    "allowJs": true,
     "types": [
       "react",
-      "react-native"
+      "react-native",
+      "node"
     ],
     "baseUrl": ".",
     "paths": {
@@ -22,7 +24,9 @@
   },
   "include": [
     "src",
-    "App.tsx"
+    "src/types/**/*.d.ts",
+    "App.tsx",
+    "config"
   ],
   "extends": "expo/tsconfig.base"
 }

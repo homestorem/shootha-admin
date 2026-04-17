@@ -9,10 +9,11 @@ import {
   updateDoc,
   where
 } from "firebase/firestore";
-import { getFirestoreDb } from "../lib/firebase";
+import { getFirestoreDb } from "../lib/firebaseClient";
 import { isFirebaseConfigured } from "../config/firebaseConfig";
 import { FIELD_REQUESTS_COLLECTION } from "./fieldRequestService";
 import { fetchDashboardVenuesForOwner, type DashboardVenueDoc } from "./dashboardVenuesFirestore";
+import { extractFieldExtrasFromFirestore } from "../lib/fieldDocExtras";
 
 export const OWNER_FIELDS_COLLECTION = "owner_fields" as const;
 
@@ -29,6 +30,15 @@ export type OwnerFieldDoc = {
   /** من مجموعة الداشبورد (venues / …) */
   source?: "app" | "dashboard";
   fieldSize?: string;
+  /** من Firestore عند توفرها (مثل تطبيق اللاعب / لوحة التحكم) */
+  phone?: string;
+  pricePerHour?: number;
+  price60?: number;
+  price90?: number;
+  price120?: number;
+  price180?: number;
+  openHour?: number;
+  closeHour?: number;
 };
 
 function normalizeReqStatus(s: unknown): string {
@@ -56,13 +66,22 @@ export async function fetchOwnerFieldsForUid(ownerUid: string): Promise<OwnerFie
   snap.forEach((d) => {
     const data = d.data() as Record<string, unknown>;
     const st = (data.status as FieldOperationalStatus) || "open";
+    const extras = extractFieldExtrasFromFirestore(data);
+    const fieldSize =
+      typeof data.fieldSize === "string"
+        ? data.fieldSize
+        : typeof data.field_size === "string"
+          ? data.field_size
+          : undefined;
     list.push({
       id: d.id,
       ownerUid: String(data.ownerUid ?? ""),
       name: String(data.name ?? ""),
       location: typeof data.location === "string" ? data.location : undefined,
       status: st === "closed" || st === "maintenance" ? st : "open",
-      fieldRequestId: typeof data.fieldRequestId === "string" ? data.fieldRequestId : null
+      fieldRequestId: typeof data.fieldRequestId === "string" ? data.fieldRequestId : null,
+      fieldSize,
+      ...extras
     });
   });
   list.sort((a, b) => a.name.localeCompare(b.name, "ar"));
@@ -100,7 +119,15 @@ function dashboardVenueToOwnerFieldDoc(d: DashboardVenueDoc, ownerPublicId: stri
     status: mapDashboardStatusToOperational(d.status),
     fieldRequestId: null,
     source: "dashboard",
-    fieldSize: d.field_size
+    fieldSize: d.field_size,
+    phone: d.phone ?? d.ownerPhone,
+    pricePerHour: d.pricePerHour,
+    price60: d.price60,
+    price90: d.price90,
+    price120: d.price120,
+    price180: d.price180,
+    openHour: d.openHour,
+    closeHour: d.closeHour
   };
 }
 
@@ -111,10 +138,53 @@ export async function fetchMergedFieldsForUid(ownerUid: string, ownerPublicId: s
   await ensureOwnerFieldsFromApprovedRequests(ownerUid);
   const [local, remote] = await Promise.all([
     fetchOwnerFieldsForUid(ownerUid),
-    fetchDashboardVenuesForOwner(ownerPublicId)
+    fetchDashboardVenuesForOwner(ownerPublicId, ownerUid)
   ]);
   const remoteRows = remote.map((d) => dashboardVenueToOwnerFieldDoc(d, ownerPublicId));
-  const localRows = local.map((f) => ({ ...f, source: "app" as const }));
+  const normalizeName = (v: string) =>
+    String(v ?? "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s_\-]+/g, "");
+  const normalizeLoc = (v: string | undefined) =>
+    String(v ?? "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s_\-]+/g, "");
+  const hasDurationPrices = (x: Pick<OwnerFieldDoc, "price90" | "price120" | "price180">) =>
+    x.price90 != null || x.price120 != null || x.price180 != null;
+  const remoteByName = new Map<string, OwnerFieldDoc>();
+  for (const r of remoteRows) {
+    const key = normalizeName(r.name);
+    if (!key) continue;
+    if (!remoteByName.has(key)) remoteByName.set(key, r);
+  }
+  const remoteWithPrices = remoteRows.filter((r) => hasDurationPrices(r));
+
+  const localRows = local.map((f) => {
+    const key = normalizeName(f.name);
+    let remoteMatch = key ? remoteByName.get(key) : undefined;
+    if (!remoteMatch) {
+      const locKey = normalizeLoc(f.location);
+      if (locKey) {
+        remoteMatch = remoteWithPrices.find((r) => normalizeLoc(r.location) === locKey);
+      }
+    }
+    if (!remoteMatch && remoteWithPrices.length === 1) {
+      remoteMatch = remoteWithPrices[0];
+    }
+
+    const needDurationPrices = !hasDurationPrices(f);
+    return {
+      ...f,
+      source: "app" as const,
+      pricePerHour: f.pricePerHour ?? remoteMatch?.pricePerHour,
+      price60: f.price60 ?? remoteMatch?.price60 ?? remoteMatch?.pricePerHour,
+      price90: needDurationPrices ? f.price90 ?? remoteMatch?.price90 : f.price90,
+      price120: needDurationPrices ? f.price120 ?? remoteMatch?.price120 : f.price120,
+      price180: needDurationPrices ? f.price180 ?? remoteMatch?.price180 : f.price180
+    };
+  });
   const merged = [...remoteRows, ...localRows];
   merged.sort((a, b) => a.name.localeCompare(b.name, "ar"));
   return merged;

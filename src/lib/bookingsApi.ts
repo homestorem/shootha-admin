@@ -1,4 +1,5 @@
 import { isBackendSyncEnabled } from "./backendFlags";
+import { normalizeToHm } from "./timeFormat";
 import { t } from "../strings";
 
 /** عند تفعيل `isBackendSyncEnabled`: استخدم `getApiClient()` من `src/api/httpClient.ts` لطلبات REST. */
@@ -12,6 +13,10 @@ export const TABLE_FIELDS = "fields" as const;
 /** مدات الحجز المسموحة في الواجهة (ساعة / ساعة ونص) */
 export const BOOKING_DURATION_MINUTES_OPTIONS = [60, 90] as const;
 export type BookingDurationMinutesOption = (typeof BOOKING_DURATION_MINUTES_OPTIONS)[number];
+
+/** صفحة إدارة الملعب — نفس خيارات مدة الحجز المرجعية (ساعة … 3 ساعات) */
+export const FIELD_MANAGE_DURATION_OPTIONS = [60, 90, 120, 180] as const;
+export type FieldManageDurationOption = (typeof FIELD_MANAGE_DURATION_OPTIONS)[number];
 
 /** صف كما يعيده PostgREST من جدول bookings */
 export type BookingRow = {
@@ -100,12 +105,9 @@ export function mapDbStatusToUi(s: string | null): BookingStatusUi {
   }
 }
 
-/** عرض وقت من قاعدة البيانات (HH:MM:SS → HH:MM) */
+/** توحيد وقت من قاعدة البيانات (HH:MM:SS → HH:MM) للبيانات والفرز — العرض 12س عبر formatHm12HourAr */
 export function formatTimeForDisplay(sqlTime: string): string {
-  if (!sqlTime) return "";
-  const p = sqlTime.split(":");
-  if (p.length >= 2) return `${p[0].padStart(2, "0")}:${p[1].padStart(2, "0")}`;
-  return sqlTime;
+  return normalizeToHm(sqlTime);
 }
 
 /** عرض مدة interval بصيغة مقروءة */

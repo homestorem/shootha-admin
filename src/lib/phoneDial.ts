@@ -9,6 +9,16 @@ export function digitsOnly(s: string): string {
   return s.replace(/\D/g, "");
 }
 
+/**
+ * بريد تسجيل الدخول بالـ OTP: `otp.<أرقام E.164 بدون +>@shoota.local`
+ * يُعاد الرقم بصيغة E.164 (مع +) لعرضه أو حفظه في الملف الشخصي.
+ */
+export function e164FromOtpLoginEmail(email: string | null | undefined): string | null {
+  if (!email) return null;
+  const m = email.trim().toLowerCase().match(/^otp\.(\d{8,16})@shoota\.local$/);
+  return m ? `+${m[1]}` : null;
+}
+
 /** إزالة صفر الاتصال المحلي إن وُجد */
 export function normalizeNationalDigits(raw: string): string {
   let d = digitsOnly(raw);

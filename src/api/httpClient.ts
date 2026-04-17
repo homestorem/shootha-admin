@@ -1,6 +1,7 @@
 import axios, { type AxiosInstance } from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { getFirebaseAuth, isFirebaseConfigured } from "../lib/firebase";
+import { getFirebaseAuth, isFirebaseConfigured } from "../lib/firebaseClient";
+import { getFirebaseAppCheckTokenForRequest } from "../lib/getFirebaseAppCheckToken";
 
 const AUTH_ACCESS_TOKEN_KEY = "@shoota_auth_access_token";
 
@@ -26,6 +27,14 @@ export function createApiClient(): AxiosInstance {
     }
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
+    }
+    try {
+      const appCheckToken = await getFirebaseAppCheckTokenForRequest();
+      if (appCheckToken) {
+        config.headers["X-Firebase-AppCheck"] = appCheckToken;
+      }
+    } catch {
+      /* App Check optional until configured */
     }
     return config;
   });

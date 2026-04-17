@@ -1,9 +1,18 @@
 import { addDoc, collection, doc, getDoc, serverTimestamp, updateDoc } from "firebase/firestore";
-import { getFirestoreDb } from "../lib/firebase";
+import { getFirestoreDb } from "../lib/firebaseClient";
 import { isFirebaseConfigured } from "../config/firebaseConfig";
+import {
+  parseAttendanceStatus,
+  settlementIncomeFromAttendance,
+  type AttendanceStatus
+} from "../lib/bookingAttendance";
 import { OWNER_BOOKINGS_COLLECTION, parseOwnerBookingData } from "./ownerBookingsFirestore";
-import { VENUE_BOOKINGS_COLLECTION } from "./venueBookingsFirestore";
+import {
+  OWNER_MANUAL_BOOKING_DISPLAY_NAME,
+  VENUE_BOOKINGS_COLLECTION
+} from "./venueBookingsFirestore";
 import { appendBookingIncomeEntry } from "./accountsStore";
+import { upsertFieldFinanceLedgerEntry } from "./fieldFinancesFirestore";
 
 export const PLAYER_RATINGS_COLLECTION = "player_ratings" as const;
 
@@ -19,6 +28,7 @@ export type PostMatchContext = {
   playerUserId: string | null;
   totalPrice: number;
   date: string;
+  attendanceStatus?: AttendanceStatus;
 };
 
 export async function fetchPostMatchContext(
@@ -35,7 +45,7 @@ export async function fetchPostMatchContext(
     const display =
       ob.source === "player"
         ? ob.playerName?.trim() || null
-        : ob.playerName?.trim() || "حجز يدوي (مالك)";
+        : ob.playerName?.trim() || OWNER_MANUAL_BOOKING_DISPLAY_NAME;
     return {
       mode: "owner",
       isSettled: Boolean(ob.isSettled),
@@ -43,7 +53,8 @@ export async function fetchPostMatchContext(
       playerDisplayName: display,
       playerUserId: ob.playerUserId ?? null,
       totalPrice: ob.totalPrice,
-      date: ob.date
+      date: ob.date,
+      attendanceStatus: ob.attendanceStatus
     };
   }
   if (mode === "venue" && venueBookingId) {
@@ -63,7 +74,8 @@ export async function fetchPostMatchContext(
       playerDisplayName: typeof x.playerName === "string" ? x.playerName : null,
       playerUserId: typeof x.playerUserId === "string" ? x.playerUserId : null,
       totalPrice: total,
-      date: String(x.date ?? "")
+      date: String(x.date ?? ""),
+      attendanceStatus: parseAttendanceStatus(x.attendanceStatus)
     };
   }
   return null;
@@ -73,6 +85,8 @@ export type CompletePostMatchInput = {
   mode: "owner" | "venue";
   ownerUid: string;
   ownerPublicId: string;
+  /** الاسم المعروض لصاحب الملعب — يُسجَّل في «مالية الملاعب» */
+  ownerDisplayName?: string | null;
   ownerBookingId?: string;
   venueBookingId?: string;
   rating: number;
@@ -99,6 +113,7 @@ export async function completePostMatch(input: CompletePostMatchInput): Promise<
     const raw = snap.data() as Record<string, unknown>;
     const ob = parseOwnerBookingData(id, raw);
     if (ob.isSettled) throw new Error("ALREADY_SETTLED");
+    const incomeOwner = settlementIncomeFromAttendance(ob.totalPrice, ob.attendanceStatus);
 
     await addDoc(collection(db, PLAYER_RATINGS_COLLECTION), {
       ownerUid: input.ownerUid,
@@ -113,7 +128,7 @@ export async function completePostMatch(input: CompletePostMatchInput): Promise<
       venueId: ob.fieldId,
       venueName: ob.fieldName,
       date: ob.date,
-      totalPriceRecorded: ob.totalPrice,
+      totalPriceRecorded: incomeOwner,
       createdAt: serverTimestamp()
     });
 
@@ -132,11 +147,25 @@ export async function completePostMatch(input: CompletePostMatchInput): Promise<
       }
     }
 
-    await appendBookingIncomeEntry({
+    const entryOwner = await appendBookingIncomeEntry({
       linkedBookingId: `owner:${id}`,
-      amount: ob.totalPrice,
-      note: `حجز ${ob.fieldName} — ${ob.date} (${r}/5)`
+      amount: incomeOwner,
+      kind: ob.source === "manual" ? "income_manual" : "income_external",
+      note:
+        incomeOwner <= 0
+          ? `حجز ${ob.fieldName} — ${ob.date} (${r}/5) — عدم حضور (لا إيراد)`
+          : `حجز ${ob.fieldName} — ${ob.date} (${r}/5)`
     });
+    if (entryOwner) {
+      const personName = (input.ownerDisplayName ?? "").trim() || "مالك الملعب";
+      await upsertFieldFinanceLedgerEntry({
+        ownerUid: input.ownerUid,
+        ownerPublicId: input.ownerPublicId,
+        personId: input.ownerUid,
+        personName,
+        entry: entryOwner
+      }).catch(() => undefined);
+    }
     return;
   }
 
@@ -161,6 +190,8 @@ export async function completePostMatch(input: CompletePostMatchInput): Promise<
   const playerUserId = typeof vraw.playerUserId === "string" ? vraw.playerUserId : null;
   const ownerBookingIdFromVenue =
     typeof vraw.ownerBookingId === "string" ? vraw.ownerBookingId : null;
+  const attendanceVenue = parseAttendanceStatus(vraw.attendanceStatus);
+  const incomeVenue = settlementIncomeFromAttendance(totalPrice, attendanceVenue);
 
   await addDoc(collection(db, PLAYER_RATINGS_COLLECTION), {
     ownerUid: input.ownerUid,
@@ -175,7 +206,7 @@ export async function completePostMatch(input: CompletePostMatchInput): Promise<
     venueId,
     venueName,
     date,
-    totalPriceRecorded: totalPrice,
+    totalPriceRecorded: incomeVenue,
     createdAt: serverTimestamp()
   });
 
@@ -195,9 +226,23 @@ export async function completePostMatch(input: CompletePostMatchInput): Promise<
     }
   }
 
-  await appendBookingIncomeEntry({
+  const entryVenue = await appendBookingIncomeEntry({
     linkedBookingId: `venue:${vid}`,
-    amount: totalPrice,
-    note: `حجز ${venueName} — ${date} (${r}/5)`
+    amount: incomeVenue,
+    kind: "income_external",
+    note:
+      incomeVenue <= 0
+        ? `حجز ${venueName} — ${date} (${r}/5) — عدم حضور (لا إيراد)`
+        : `حجز ${venueName} — ${date} (${r}/5)`
   });
+  if (entryVenue) {
+    const personName = (input.ownerDisplayName ?? "").trim() || "مالك الملعب";
+    await upsertFieldFinanceLedgerEntry({
+      ownerUid: input.ownerUid,
+      ownerPublicId: input.ownerPublicId,
+      personId: input.ownerUid,
+      personName,
+      entry: entryVenue
+    }).catch(() => undefined);
+  }
 }

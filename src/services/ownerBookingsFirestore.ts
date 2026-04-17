@@ -11,8 +11,12 @@ import {
   where,
   writeBatch
 } from "firebase/firestore";
-import { getFirestoreDb } from "../lib/firebase";
+import { getFirestoreDb } from "../lib/firebaseClient";
 import { isFirebaseConfigured } from "../config/firebaseConfig";
+import { parseAttendanceStatus, type AttendanceStatus } from "../lib/bookingAttendance";
+import { toBookingCalendarDay } from "../lib/firestoreBookingDate";
+import { deriveOwnerIdFromUid } from "../lib/ownerId";
+import { appendOwnerFieldActionLog, type OwnerFieldActionKind } from "./ownerFieldActionsFirestore";
 import {
   buildOwnerAppMirrorFields,
   deleteVenueBookingDoc,
@@ -27,6 +31,8 @@ export const OWNER_BOOKINGS_COLLECTION = "owner_bookings" as const;
 
 export type BookingSourceKind = "manual" | "player";
 
+export type { AttendanceStatus } from "../lib/bookingAttendance";
+
 export type OwnerBookingDoc = {
   id: string;
   ownerUid: string;
@@ -40,13 +46,44 @@ export type OwnerBookingDoc = {
   status: string;
   source: BookingSourceKind;
   playerName?: string | null;
+  phone?: string | null;
   playerUserId?: string | null;
   services?: string[];
   /** مستند مرآة في مجموعة bookings */
   mirrorBookingId?: string | null;
   /** تم إنهاء المباراة والتقييم */
   isSettled?: boolean;
+  /** طريقة الدفع: cash | electronic | bank_transfer | pos */
+  paymentMethod?: string | null;
+  /** تأكيد حضور اللاعب — يحدد الإيراد عند «تقييم وإنهاء» */
+  attendanceStatus?: AttendanceStatus;
 };
+
+type OwnerBookingPatch = Partial<
+  Pick<
+    OwnerBookingDoc,
+    | "date"
+    | "startTime"
+    | "endTime"
+    | "durationMinutes"
+    | "totalPrice"
+    | "status"
+    | "source"
+    | "playerName"
+    | "phone"
+    | "services"
+    | "fieldName"
+    | "paymentMethod"
+    | "attendanceStatus"
+  >
+>;
+
+function classifyOwnerBookingPatch(patch: OwnerBookingPatch): OwnerFieldActionKind {
+  const keys = Object.keys(patch).filter((k) => patch[k as keyof OwnerBookingPatch] !== undefined);
+  if (keys.length === 1 && keys[0] === "status") return "booking_status_changed";
+  if (keys.length === 1 && keys[0] === "attendanceStatus") return "attendance_set";
+  return "booking_updated";
+}
 
 export type InsertOwnerBookingInput = {
   ownerUid: string;
@@ -60,9 +97,11 @@ export type InsertOwnerBookingInput = {
   status?: string;
   source: BookingSourceKind;
   playerName?: string | null;
+  phone?: string | null;
   services?: string[];
   /** لمزامنة الحجز اليدوي مع bookings (الداشبورد / تطبيق اللاعب) */
   ownerPublicId?: string;
+  paymentMethod?: string | null;
 };
 
 export function parseOwnerBookingData(id: string, data: Record<string, unknown>): OwnerBookingDoc {
@@ -75,7 +114,7 @@ export function parseOwnerBookingData(id: string, data: Record<string, unknown>)
     ownerUid: String(data.ownerUid ?? ""),
     fieldId: String(data.fieldId ?? ""),
     fieldName: String(data.fieldName ?? ""),
-    date: String(data.date ?? ""),
+    date: toBookingCalendarDay(data.date) || String(data.date ?? "").trim(),
     startTime: String(data.startTime ?? ""),
     endTime: String(data.endTime ?? ""),
     durationMinutes: typeof data.durationMinutes === "number" ? data.durationMinutes : 60,
@@ -83,11 +122,42 @@ export function parseOwnerBookingData(id: string, data: Record<string, unknown>)
     status: String(data.status ?? "approved"),
     source: data.source === "player" ? "player" : "manual",
     playerName: typeof data.playerName === "string" ? data.playerName : null,
+    phone: typeof data.phone === "string" ? data.phone : null,
     playerUserId: typeof data.playerUserId === "string" ? data.playerUserId : null,
     services,
     mirrorBookingId: typeof data.mirrorBookingId === "string" ? data.mirrorBookingId : null,
-    isSettled: data.settledAt != null
+    isSettled: data.settledAt != null,
+    paymentMethod: typeof data.paymentMethod === "string" && data.paymentMethod.trim() ? data.paymentMethod.trim() : null,
+    attendanceStatus: parseAttendanceStatus(data.attendanceStatus)
   };
+}
+
+export async function setOwnerBookingAttendance(bookingId: string, status: AttendanceStatus): Promise<void> {
+  if (!isFirebaseConfigured()) throw new Error("FIREBASE_NOT_CONFIGURED");
+  const db = getFirestoreDb();
+  const ref = doc(db, OWNER_BOOKINGS_COLLECTION, bookingId);
+  const snap = await getDoc(ref);
+  if (!snap.exists()) throw new Error("NOT_FOUND");
+  const prev = parseOwnerBookingData(bookingId, snap.data() as Record<string, unknown>);
+  if (prev.isSettled) throw new Error("ALREADY_SETTLED");
+  const patch = {
+    attendanceStatus: status,
+    attendanceConfirmedAt: serverTimestamp(),
+    updatedAt: serverTimestamp()
+  };
+  await updateDoc(ref, patch);
+  if (prev.mirrorBookingId) {
+    await updateDoc(doc(db, VENUE_BOOKINGS_COLLECTION, prev.mirrorBookingId), patch);
+  }
+  appendOwnerFieldActionLog({
+    ownerUid: prev.ownerUid,
+    ownerPublicId: deriveOwnerIdFromUid(prev.ownerUid),
+    action: "attendance_set",
+    sourceCollection: "owner_bookings",
+    targetId: bookingId,
+    summary: `حضور — ${status === "attended" ? "حضر" : "لم يحضر"} — ${prev.fieldName} — ${prev.date}`,
+    meta: { attendanceStatus: status, mirrorBookingId: prev.mirrorBookingId ?? null }
+  });
 }
 
 export async function fetchOwnerBookingsForUid(ownerUid: string): Promise<OwnerBookingDoc[]> {
@@ -127,9 +197,11 @@ export async function insertOwnerBooking(input: InsertOwnerBookingInput): Promis
     status: input.status ?? "approved",
     source: input.source,
     playerName: input.playerName?.trim() || null,
+    phone: input.phone?.trim() || null,
     services: input.services?.length ? input.services : [],
     createdAt: serverTimestamp(),
-    updatedAt: serverTimestamp()
+    updatedAt: serverTimestamp(),
+    ...(input.paymentMethod?.trim() ? { paymentMethod: input.paymentMethod.trim() } : {})
   };
 
   const sync =
@@ -147,18 +219,39 @@ export async function insertOwnerBooking(input: InsertOwnerBookingInput): Promis
       totalPrice: input.totalPrice,
       status: input.status ?? "approved",
       source: input.source,
-      playerName: input.playerName
+      playerName: input.playerName,
+      phone: input.phone,
+      services: input.services ?? [],
+      paymentMethod: input.paymentMethod?.trim() || null
     });
     const batch = writeBatch(db);
     batch.set(ownerRef, { ...basePayload, mirrorBookingId: mirrorRef.id });
     batch.set(mirrorRef, mirrorPayload);
     await batch.commit();
+    appendOwnerFieldActionLog({
+      ownerUid: input.ownerUid,
+      ownerPublicId: input.ownerPublicId?.trim() || null,
+      action: "booking_created",
+      sourceCollection: "owner_bookings",
+      targetId: ownerRef.id,
+      summary: `إنشاء حجز — ${input.fieldName} — ${input.date}`,
+      meta: { startTime: input.startTime, source: input.source }
+    });
     return { id: ownerRef.id };
   }
 
   const batch = writeBatch(db);
   batch.set(ownerRef, basePayload);
   await batch.commit();
+  appendOwnerFieldActionLog({
+    ownerUid: input.ownerUid,
+    ownerPublicId: input.ownerPublicId?.trim() || null,
+    action: "booking_created",
+    sourceCollection: "owner_bookings",
+    targetId: ownerRef.id,
+    summary: `إنشاء حجز — ${input.fieldName} — ${input.date}`,
+    meta: { startTime: input.startTime, source: input.source }
+  });
   return { id: ownerRef.id };
 }
 
@@ -175,8 +268,11 @@ export async function updateOwnerBookingDoc(
       | "status"
       | "source"
       | "playerName"
+      | "phone"
       | "services"
       | "fieldName"
+      | "paymentMethod"
+      | "attendanceStatus"
     >
   >
 ): Promise<void> {
@@ -201,9 +297,29 @@ export async function updateOwnerBookingDoc(
       totalPrice: merged.totalPrice,
       status: merged.status,
       source: merged.source,
-      playerName: merged.playerName
+      playerName: merged.playerName,
+      phone: merged.phone ?? null,
+      services: merged.services ?? [],
+      paymentMethod: merged.paymentMethod ?? null,
+      attendanceStatus: merged.attendanceStatus
     });
   }
+  const action = classifyOwnerBookingPatch(patch as OwnerBookingPatch);
+  const summary =
+    action === "booking_status_changed"
+      ? `تغيير حالة حجز — ${merged.fieldName} — ${merged.date} — ${merged.status}`
+      : action === "attendance_set"
+        ? `تعديل حضور — ${merged.fieldName} — ${merged.date}`
+        : `تعديل حجز — ${merged.fieldName} — ${merged.date}`;
+  appendOwnerFieldActionLog({
+    ownerUid: prev.ownerUid,
+    ownerPublicId: deriveOwnerIdFromUid(prev.ownerUid),
+    action,
+    sourceCollection: "owner_bookings",
+    targetId: bookingId,
+    summary,
+    meta: { status: merged.status, attendanceStatus: merged.attendanceStatus ?? null }
+  });
 }
 
 export async function deleteOwnerBookingDoc(bookingId: string): Promise<void> {
@@ -211,13 +327,26 @@ export async function deleteOwnerBookingDoc(bookingId: string): Promise<void> {
   const db = getFirestoreDb();
   const ref = doc(db, OWNER_BOOKINGS_COLLECTION, bookingId);
   const snap = await getDoc(ref);
+  let prev: OwnerBookingDoc | null = null;
   if (snap.exists()) {
+    prev = parseOwnerBookingData(bookingId, snap.data() as Record<string, unknown>);
     const m = (snap.data() as Record<string, unknown>).mirrorBookingId;
     if (typeof m === "string" && m) {
-      await deleteVenueBookingDoc(m);
+      await deleteVenueBookingDoc(m, { skipOwnerActionLog: true });
     }
   }
   await deleteDoc(ref);
+  if (prev) {
+    appendOwnerFieldActionLog({
+      ownerUid: prev.ownerUid,
+      ownerPublicId: deriveOwnerIdFromUid(prev.ownerUid),
+      action: "booking_deleted",
+      sourceCollection: "owner_bookings",
+      targetId: bookingId,
+      summary: `حذف حجز — ${prev.fieldName} — ${prev.date}`,
+      meta: { source: prev.source }
+    });
+  }
 }
 
 export async function updateOwnerBookingStatusFirestore(bookingId: string, status: string): Promise<void> {
@@ -271,7 +400,10 @@ export function venueBookingToOwnerBookingDoc(
     totalPrice: v.totalPrice ?? v.price ?? 0,
     status: v.status ?? "confirmed",
     source: "player",
-    playerName: v.playerName ?? null
+    playerName: v.playerName ?? null,
+    phone: v.phone ?? null,
+    paymentMethod: v.paymentMethod ?? null,
+    attendanceStatus: v.attendanceStatus
   };
 }
 

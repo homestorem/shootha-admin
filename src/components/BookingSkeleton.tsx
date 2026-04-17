@@ -1,9 +1,9 @@
 import React from "react";
-import { View, StyleSheet, Animated } from "react-native";
-import { colors } from "../theme/colors";
+import { View, StyleSheet, Animated, type DimensionValue } from "react-native";
+import { useSettings } from "../providers/SettingsProvider";
 import { radius, spacing, cardElevation } from "../theme/tokens";
 
-function SkeletonLine({ width }: { width: string | number }) {
+function SkeletonLine({ width, lineBg }: { width: DimensionValue; lineBg: string }) {
   const opacity = React.useRef(new Animated.Value(0.32)).current;
   React.useEffect(() => {
     const loop = Animated.loop(
@@ -16,22 +16,27 @@ function SkeletonLine({ width }: { width: string | number }) {
     return () => loop.stop();
   }, [opacity]);
 
-  return <Animated.View style={[styles.line, { width, opacity }]} />;
+  return <Animated.View style={[styles.line, { width, opacity, backgroundColor: lineBg }]} />;
 }
 
-export const BookingSkeleton: React.FC = () => (
-  <View style={[styles.card, cardElevation()]}>
-    <View style={styles.row}>
-      <SkeletonLine width="45%" />
-      <SkeletonLine width={72} />
+export const BookingSkeleton: React.FC = () => {
+  const { palette } = useSettings();
+  const lineBg = palette.border;
+
+  return (
+    <View style={[styles.card, cardElevation(palette)]}>
+      <View style={styles.row}>
+        <SkeletonLine width="45%" lineBg={lineBg} />
+        <SkeletonLine width={72} lineBg={lineBg} />
+      </View>
+      <SkeletonLine width="60%" lineBg={lineBg} />
+      <View style={styles.rowBtns}>
+        <SkeletonLine width={72} lineBg={lineBg} />
+        <SkeletonLine width={72} lineBg={lineBg} />
+      </View>
     </View>
-    <SkeletonLine width="60%" />
-    <View style={styles.rowBtns}>
-      <SkeletonLine width={72} />
-      <SkeletonLine width={72} />
-    </View>
-  </View>
-);
+  );
+};
 
 export const BookingSkeletonList: React.FC = () => (
   <>
@@ -60,7 +65,6 @@ const styles = StyleSheet.create({
   },
   line: {
     height: 14,
-    borderRadius: 7,
-    backgroundColor: colors.border
+    borderRadius: 7
   }
 });
