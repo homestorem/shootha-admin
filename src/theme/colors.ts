@@ -1,4 +1,4 @@
-/** نظام ألوان — Shoot'ha Business: أخضر العلامة #00C853، فاتح minimal فاخر، داكن فوق صورة ملعب */
+/** نظام ألوان — SHOOT'HA Business: أخضر العلامة #00C853، فاتح minimal فاخر، داكن فوق صورة ملعب */
 
 /** أخضر العلامة الرئيسي (واجهة Careem/Tesla-like) — الوضع الفاتح */
 export const BRAND_GREEN = "#00C853";
@@ -59,7 +59,7 @@ export const lightPalette: AppPalette = {
   surface: "#E8EEEA",
   surfaceCard: "rgba(255, 255, 255, 0.82)",
   surfaceMuted: "#DCE6E0",
-  background: "#F5FAF7",
+  background: "#FFFFFF",
   backgroundDark: "#121212",
   card: "#F0F6F2",
   text: "#000000",
@@ -95,8 +95,8 @@ export const darkPalette: AppPalette = {
   surface: "#121212",
   surfaceCard: "rgba(30, 30, 30, 0.72)",
   surfaceMuted: "#2C2C2C",
-  background: "#050806",
-  backgroundDark: "#020403",
+  background: "#000000",
+  backgroundDark: "#000000",
   card: "#1E1E1E",
   text: "#FFFFFF",
   textSecondary: "rgba(255, 255, 255, 0.72)",

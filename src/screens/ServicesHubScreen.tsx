@@ -13,16 +13,7 @@ import { useSettings } from "../providers/SettingsProvider";
 import { t } from "../strings";
 import type { MainTabParamList } from "../navigation/AppNavigator";
 import { makeServicesHubStyles } from "./servicesHubScreenStyles";
-import { digitsOnly } from "../lib/phoneDial";
-
-function buildWhatsappOpenUrl(raw: string): string | null {
-  const s = raw.trim();
-  if (!s) return null;
-  if (/^https?:\/\//i.test(s)) return s;
-  const d = digitsOnly(s);
-  if (!d) return null;
-  return `https://wa.me/${d}`;
-}
+import { buildWhatsappOpenUrlFromRaw } from "../lib/phoneDial";
 
 function normalizeHttpUrl(raw: string): string | null {
   const s = raw.trim();
@@ -102,7 +93,7 @@ export const ServicesHubScreen: React.FC = () => {
       subtitle: t.servicesHub.whatsappSub,
       icon: "logo-whatsapp",
       onPress: () => {
-        const url = buildWhatsappOpenUrl(supportWhatsappRaw);
+        const url = buildWhatsappOpenUrlFromRaw(supportWhatsappRaw);
         if (!url) {
           Toast.show({ type: "info", text1: t.servicesHub.linksNotSet });
           return;

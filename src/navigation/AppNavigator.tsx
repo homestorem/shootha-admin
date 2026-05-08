@@ -1,6 +1,9 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo } from "react";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+import * as Notifications from "expo-notifications";
+import { useNavigation } from "@react-navigation/native";
+import type { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
 import { useAuth } from "../providers/AuthProvider";
 import { useSettings } from "../providers/SettingsProvider";
 import { BookingsScreen } from "../screens/BookingsScreen";
@@ -13,10 +16,8 @@ import { DailyScheduleScreen } from "../screens/DailyScheduleScreen";
 import { PostMatchScreen } from "../screens/PostMatchScreen";
 import { WalletScreen } from "../screens/WalletScreen";
 import { SocialPlatformsScreen } from "../screens/SocialPlatformsScreen";
-import { EditAccountScreen } from "../screens/EditAccountScreen";
 import { FieldDataRequestScreen } from "../screens/FieldDataRequestScreen";
 import { SupportContactScreen } from "../screens/SupportContactScreen";
-import { SupportChatScreen } from "../screens/SupportChatScreen";
 import { TermsConditionsScreen } from "../screens/TermsConditionsScreen";
 import { PrivacyPolicyScreen } from "../screens/PrivacyPolicyScreen";
 import { DeleteAccountPhoneScreen } from "../screens/DeleteAccountPhoneScreen";
@@ -53,6 +54,44 @@ const AppStack = createNativeStackNavigator<MainAppStackParamList>();
 
 function AppTabs() {
   const { palette, tr } = useSettings();
+  const navigation = useNavigation<BottomTabNavigationProp<MainTabParamList>>();
+  useEffect(() => {
+    const openFromPayload = (data: Record<string, unknown> | undefined) => {
+      const bookingUiId = typeof data?.bookingUiId === "string" ? data.bookingUiId : undefined;
+      if (bookingUiId) {
+        navigation.navigate("Home", { openBookingId: bookingUiId });
+        return;
+      }
+      navigation.navigate("Notifications");
+    };
+
+    // App opened from a push tap while in background.
+    const sub = Notifications.addNotificationResponseReceivedListener((response) => {
+      const data = response.notification.request.content.data as Record<string, unknown> | undefined;
+      openFromPayload(data);
+    });
+
+    // App launched from killed state by tapping a push.
+    void Notifications.getLastNotificationResponseAsync()
+      .then((resp) => {
+        const data = resp?.notification.request.content.data as Record<string, unknown> | undefined;
+        if (resp) openFromPayload(data);
+      })
+      .catch(() => {
+        /* ignore */
+      });
+
+    // Foreground notification hook (can be extended for in-app UX).
+    const receivedSub = Notifications.addNotificationReceivedListener(() => {
+      // Notification is already displayed by setNotificationHandler.
+    });
+
+    return () => {
+      sub.remove();
+      receivedSub.remove();
+    };
+  }, [navigation]);
+
   return (
     <Tab.Navigator
       initialRouteName="Home"
@@ -152,11 +191,6 @@ function AppLoggedInStack() {
         }}
       />
       <AppStack.Screen
-        name="EditAccount"
-        component={EditAccountScreen}
-        options={{ headerShown: true, headerTitleAlign: isRTL ? "left" : "center", title: tr("nav.editAccount"), ...headerOpts }}
-      />
-      <AppStack.Screen
         name="FieldDataRequest"
         component={FieldDataRequestScreen}
         options={{
@@ -170,11 +204,6 @@ function AppLoggedInStack() {
         name="SupportContact"
         component={SupportContactScreen}
         options={{ headerShown: true, headerTitleAlign: isRTL ? "left" : "center", title: tr("nav.supportContact"), ...headerOpts }}
-      />
-      <AppStack.Screen
-        name="SupportChat"
-        component={SupportChatScreen}
-        options={{ headerShown: true, headerTitleAlign: isRTL ? "left" : "center", title: tr("supportChat.title"), ...headerOpts }}
       />
       <AppStack.Screen
         name="TermsConditions"

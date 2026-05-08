@@ -1,5 +1,5 @@
 ﻿import React, { useMemo } from "react";
-import { View, Text, ScrollView, Pressable, StyleSheet } from "react-native";
+import { View, Text, ScrollView, Pressable, StyleSheet, type ViewStyle } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { SolidPanelFill } from "../components/SolidPanelFill";
 import { useNavigation } from "@react-navigation/native";
@@ -110,7 +110,6 @@ export const ProfileScreen: React.FC = () => {
       icon: "globe-outline",
       onPress: () => nav.navigate("SocialPlatforms")
     },
-    { key: "edit", title: tr("nav.editAccount"), sub: "", icon: "create-outline", onPress: () => nav.navigate("EditAccount") },
     {
       key: "field",
       title: tr("nav.fieldDataRequest"),
@@ -139,7 +138,10 @@ export const ProfileScreen: React.FC = () => {
 
   return (
     <ScreenShell>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={[styles.scroll, { writingDirection: dir }]}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[styles.scroll, { writingDirection: dir } as ViewStyle]}
+      >
         <InputLayer>
           <NeonHeroHeader
             palette={palette}

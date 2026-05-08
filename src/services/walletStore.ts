@@ -7,12 +7,15 @@ import {
   limit,
   query,
   runTransaction,
+  setDoc,
   serverTimestamp,
   where
 } from "firebase/firestore";
 import { getFirestoreDb, isFirebaseConfigured } from "../lib/firebaseClient";
 
 const STORAGE_KEY = "@shoota_owner_wallet_v1";
+const STORAGE_KEY_PREFIX = "@shoota_owner_wallet_v2";
+const OWNER_WALLETS_COLLECTION = "owner_wallets";
 
 export type WalletEntryType =
   | "topup"
@@ -66,6 +69,11 @@ export type WalletSnapshot = {
   }>;
 };
 
+type WalletCloudDoc = {
+  ownerUid?: string;
+  snapshot?: WalletSnapshot;
+};
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -95,38 +103,120 @@ function emptyWallet(): WalletSnapshot {
   };
 }
 
-export async function loadWalletSnapshot(): Promise<WalletSnapshot> {
-  try {
-    const raw = await AsyncStorage.getItem(STORAGE_KEY);
+function normalizeWalletSnapshot(parsed: unknown): WalletSnapshot {
+  if (!parsed || typeof parsed !== "object") return emptyWallet();
+  const data = parsed as WalletSnapshot;
+  if (!data?.account || !Array.isArray(data.entries)) return emptyWallet();
+  const base = emptyWallet();
+  return {
+    account: {
+      id: typeof data.account.id === "string" ? data.account.id : "main",
+      currency: "IQD",
+      availableBalance:
+        typeof data.account.availableBalance === "number" && Number.isFinite(data.account.availableBalance)
+          ? data.account.availableBalance
+          : 0,
+      pendingBalance:
+        typeof data.account.pendingBalance === "number" && Number.isFinite(data.account.pendingBalance)
+          ? data.account.pendingBalance
+          : 0,
+      dashboardBalance:
+        typeof data.account.dashboardBalance === "number" && Number.isFinite(data.account.dashboardBalance)
+          ? data.account.dashboardBalance
+          : 0,
+      updatedAt: typeof data.account.updatedAt === "string" ? data.account.updatedAt : nowIso()
+    },
+    entries: Array.isArray(data.entries) ? data.entries : [],
+    vouchers: Array.isArray(data.vouchers) ? data.vouchers : base.vouchers,
+    scheduledSettlements: Array.isArray(data.scheduledSettlements) ? data.scheduledSettlements : []
+  };
+}
+
+function storageKeyForOwner(ownerUid?: string): string {
+  const uid = String(ownerUid ?? "").trim();
+  return uid ? `${STORAGE_KEY_PREFIX}:${uid}` : STORAGE_KEY;
+}
+
+export async function loadWalletSnapshot(ownerUid?: string): Promise<WalletSnapshot> {
+  const uid = String(ownerUid ?? "").trim();
+  const storageKey = storageKeyForOwner(uid);
+  const readLocal = async (): Promise<WalletSnapshot> => {
+    const raw = await AsyncStorage.getItem(storageKey);
     if (!raw) return emptyWallet();
-    const parsed = JSON.parse(raw) as WalletSnapshot;
-    if (!parsed?.account || !Array.isArray(parsed.entries)) return emptyWallet();
-    const base = emptyWallet();
-    const normalized: WalletSnapshot = {
-      account: {
-        id: typeof parsed.account.id === "string" ? parsed.account.id : "main",
-        currency: "IQD",
-        availableBalance:
-          typeof parsed.account.availableBalance === "number" && Number.isFinite(parsed.account.availableBalance)
-            ? parsed.account.availableBalance
-            : 0,
-        pendingBalance:
-          typeof parsed.account.pendingBalance === "number" && Number.isFinite(parsed.account.pendingBalance)
-            ? parsed.account.pendingBalance
-            : 0,
-        dashboardBalance:
-          typeof parsed.account.dashboardBalance === "number" && Number.isFinite(parsed.account.dashboardBalance)
-            ? parsed.account.dashboardBalance
-            : 0,
-        updatedAt: typeof parsed.account.updatedAt === "string" ? parsed.account.updatedAt : nowIso()
-      },
-      entries: Array.isArray(parsed.entries) ? parsed.entries : [],
-      vouchers: Array.isArray(parsed.vouchers) ? parsed.vouchers : base.vouchers,
-      scheduledSettlements: Array.isArray(parsed.scheduledSettlements) ? parsed.scheduledSettlements : []
-    };
-    return normalized;
+    return normalizeWalletSnapshot(JSON.parse(raw));
+  };
+
+  try {
+    if (!uid || !isFirebaseConfigured()) {
+      return await readLocal();
+    }
+
+    const db = getFirestoreDb();
+    const walletRef = doc(db, OWNER_WALLETS_COLLECTION, uid);
+    const [cloudSnap, localSnap] = await Promise.all([getDoc(walletRef), readLocal()]);
+    const hasLocalData =
+      localSnap.account.availableBalance > 0 ||
+      localSnap.account.pendingBalance > 0 ||
+      localSnap.account.dashboardBalance > 0 ||
+      localSnap.entries.length > 0 ||
+      localSnap.scheduledSettlements.length > 0;
+
+    if (cloudSnap.exists()) {
+      const cloudData = cloudSnap.data() as WalletCloudDoc;
+      const normalizedCloud = normalizeWalletSnapshot(cloudData.snapshot);
+      await AsyncStorage.setItem(storageKey, JSON.stringify(normalizedCloud));
+      return normalizedCloud;
+    }
+
+    if (hasLocalData) {
+      await setDoc(
+        walletRef,
+        {
+          ownerUid: uid,
+          snapshot: localSnap,
+          updatedAt: serverTimestamp()
+        },
+        { merge: true }
+      );
+      return localSnap;
+    }
+
+    const userRef = doc(db, "users", uid);
+    const userSnap = await getDoc(userRef);
+    const userData = (userSnap.data() ?? {}) as Record<string, unknown>;
+    const balanceRaw = userData.walletBalance ?? userData.availableBalance ?? 0;
+    const seededBalance = typeof balanceRaw === "number" && Number.isFinite(balanceRaw) ? balanceRaw : 0;
+    if (seededBalance > 0) {
+      const seeded = normalizeWalletSnapshot({
+        ...emptyWallet(),
+        account: {
+          ...emptyWallet().account,
+          availableBalance: seededBalance,
+          updatedAt: nowIso()
+        }
+      });
+      await AsyncStorage.setItem(storageKey, JSON.stringify(seeded));
+      await setDoc(
+        walletRef,
+        {
+          ownerUid: uid,
+          snapshot: seeded,
+          updatedAt: serverTimestamp()
+        },
+        { merge: true }
+      );
+      return seeded;
+    }
+
+    return localSnap;
   } catch {
-    return emptyWallet();
+    try {
+      const raw = await AsyncStorage.getItem(storageKeyForOwner(ownerUid));
+      if (!raw) return emptyWallet();
+      return normalizeWalletSnapshot(JSON.parse(raw));
+    } catch {
+      return emptyWallet();
+    }
   }
 }
 
@@ -136,14 +226,15 @@ export async function scheduleBookingWalletCharge(input: {
   endAtIso: string;
   delayMinutes?: number;
   note?: string;
+  ownerUid?: string;
 }): Promise<WalletSnapshot> {
   const amount = Math.round(input.amount * 100) / 100;
-  if (!Number.isFinite(amount) || amount <= 0) return loadWalletSnapshot();
+  if (!Number.isFinite(amount) || amount <= 0) return loadWalletSnapshot(input.ownerUid);
   const endAt = new Date(input.endAtIso);
-  if (Number.isNaN(endAt.getTime())) return loadWalletSnapshot();
+  if (Number.isNaN(endAt.getTime())) return loadWalletSnapshot(input.ownerUid);
 
   const dueAt = new Date(endAt.getTime() + (input.delayMinutes ?? 15) * 60_000).toISOString();
-  const snap = await loadWalletSnapshot();
+  const snap = await loadWalletSnapshot(input.ownerUid);
   if (snap.scheduledSettlements.some((s) => s.bookingRef === input.bookingRef)) {
     return snap;
   }
@@ -160,12 +251,25 @@ export async function scheduleBookingWalletCharge(input: {
       ...snap.scheduledSettlements
     ]
   };
-  await saveWalletSnapshot(next);
+  await saveWalletSnapshot(next, input.ownerUid);
   return next;
 }
 
-export async function saveWalletSnapshot(s: WalletSnapshot): Promise<void> {
-  await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(s));
+export async function saveWalletSnapshot(s: WalletSnapshot, ownerUid?: string): Promise<void> {
+  const uid = String(ownerUid ?? "").trim();
+  const normalized = normalizeWalletSnapshot(s);
+  await AsyncStorage.setItem(storageKeyForOwner(uid), JSON.stringify(normalized));
+  if (!uid || !isFirebaseConfigured()) return;
+  const db = getFirestoreDb();
+  await setDoc(
+    doc(db, OWNER_WALLETS_COLLECTION, uid),
+    {
+      ownerUid: uid,
+      snapshot: normalized,
+      updatedAt: serverTimestamp()
+    },
+    { merge: true }
+  );
 }
 
 export async function appendWalletEntry(input: {
@@ -175,13 +279,14 @@ export async function appendWalletEntry(input: {
   note?: string;
   reference?: string;
   status?: WalletEntryStatus;
+  ownerUid?: string;
 }): Promise<WalletSnapshot> {
   const amount = Math.round(input.amount * 100) / 100;
   if (!Number.isFinite(amount) || amount <= 0) {
-    return loadWalletSnapshot();
+    return loadWalletSnapshot(input.ownerUid);
   }
 
-  const snap = await loadWalletSnapshot();
+  const snap = await loadWalletSnapshot(input.ownerUid);
   const status = input.status ?? "completed";
   const entry: WalletJournalEntry = {
     id: makeWalletEntryId(),
@@ -214,7 +319,7 @@ export async function appendWalletEntry(input: {
     vouchers: snap.vouchers,
     scheduledSettlements: snap.scheduledSettlements
   };
-  await saveWalletSnapshot(next);
+  await saveWalletSnapshot(next, input.ownerUid);
   return next;
 }
 
@@ -234,7 +339,8 @@ export async function redeemVoucherCode(input: RedeemVoucherInput): Promise<Rede
     const next = await applyLocalTopup({
       amount: redeemed.amount,
       note: input.note?.trim() || `بطاقة شحن — ${code}`,
-      reference: code
+      reference: code,
+      ownerUid: userUid
     });
     return { ok: true, snapshot: next, amount: redeemed.amount };
   }
@@ -255,7 +361,7 @@ type RedeemVoucherResult =
 
 async function redeemVoucherLocally(input: RedeemVoucherInput): Promise<RedeemVoucherResult> {
   const code = input.code.trim().toUpperCase();
-  const snap = await loadWalletSnapshot();
+  const snap = await loadWalletSnapshot(input.userUid);
   const idx = snap.vouchers.findIndex((v) => v.code.toUpperCase() === code);
   if (idx < 0) return { ok: false, reason: "not_found" };
   const card = snap.vouchers[idx];
@@ -285,13 +391,18 @@ async function redeemVoucherLocally(input: RedeemVoucherInput): Promise<RedeemVo
     vouchers: updatedVouchers,
     scheduledSettlements: snap.scheduledSettlements
   };
-  await saveWalletSnapshot(next);
+  await saveWalletSnapshot(next, input.userUid);
   return { ok: true, snapshot: next, amount };
 }
 
-async function applyLocalTopup(input: { amount: number; note?: string; reference?: string }): Promise<WalletSnapshot> {
+async function applyLocalTopup(input: {
+  amount: number;
+  note?: string;
+  reference?: string;
+  ownerUid?: string;
+}): Promise<WalletSnapshot> {
   const amount = Math.round(input.amount * 100) / 100;
-  const snap = await loadWalletSnapshot();
+  const snap = await loadWalletSnapshot(input.ownerUid);
   const entry: WalletJournalEntry = {
     id: makeWalletEntryId(),
     type: "topup",
@@ -312,7 +423,7 @@ async function applyLocalTopup(input: { amount: number; note?: string; reference
     vouchers: snap.vouchers,
     scheduledSettlements: snap.scheduledSettlements
   };
-  await saveWalletSnapshot(next);
+  await saveWalletSnapshot(next, input.ownerUid);
   return next;
 }
 
@@ -412,11 +523,12 @@ export async function applyBookingWalletCharge(input: {
   amount: number;
   bookingRef: string;
   note?: string;
+  ownerUid?: string;
 }): Promise<{ ok: true; snapshot: WalletSnapshot } | { ok: false; reason: "insufficient_balance" | "invalid_amount" }> {
   const amount = Math.round(input.amount * 100) / 100;
   if (!Number.isFinite(amount) || amount <= 0) return { ok: false, reason: "invalid_amount" };
 
-  const snap = await loadWalletSnapshot();
+  const snap = await loadWalletSnapshot(input.ownerUid);
   if (snap.account.availableBalance < amount) return { ok: false, reason: "insufficient_balance" };
 
   const chargeEntry: WalletJournalEntry = {
@@ -451,12 +563,15 @@ export async function applyBookingWalletCharge(input: {
     vouchers: snap.vouchers,
     scheduledSettlements: snap.scheduledSettlements
   };
-  await saveWalletSnapshot(next);
+  await saveWalletSnapshot(next, input.ownerUid);
   return { ok: true, snapshot: next };
 }
 
-export async function processDueWalletSettlements(now: Date = new Date()): Promise<WalletSnapshot> {
-  let snap = await loadWalletSnapshot();
+export async function processDueWalletSettlements(
+  ownerUid?: string,
+  now: Date = new Date()
+): Promise<WalletSnapshot> {
+  let snap = await loadWalletSnapshot(ownerUid);
   const due = snap.scheduledSettlements.filter((s) => !s.processed && new Date(s.dueAt).getTime() <= now.getTime());
   if (due.length === 0) return snap;
 
@@ -472,7 +587,8 @@ export async function processDueWalletSettlements(now: Date = new Date()): Promi
       const res = await applyBookingWalletCharge({
         amount: item.amount,
         bookingRef: item.bookingRef,
-        note: item.note
+        note: item.note,
+        ownerUid
       });
       if (res.ok) {
         processedRefs.add(item.bookingRef);
@@ -481,14 +597,14 @@ export async function processDueWalletSettlements(now: Date = new Date()): Promi
     }
   }
 
-  const current = await loadWalletSnapshot();
+  const current = await loadWalletSnapshot(ownerUid);
   const next: WalletSnapshot = {
     ...current,
     scheduledSettlements: current.scheduledSettlements.map((s) =>
       due.some((d) => d.bookingRef === s.bookingRef) ? { ...s, processed: true } : s
     )
   };
-  await saveWalletSnapshot(next);
+  await saveWalletSnapshot(next, ownerUid);
   return next;
 }
 

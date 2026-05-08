@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const STORAGE_KEY = "@shoota_owner_accounts_v1";
+const STORAGE_KEY_PREFIX = "@shoota_owner_accounts_v2";
 
 export type AccountEntryKind = "expense" | "income_external" | "income_manual" | "income_booking";
 
@@ -27,9 +28,14 @@ function emptySnapshot(): AccountsSnapshot {
   return { entries: [] };
 }
 
-export async function loadAccountsSnapshot(): Promise<AccountsSnapshot> {
+function storageKeyForOwner(ownerUid?: string): string {
+  const uid = String(ownerUid ?? "").trim();
+  return uid ? `${STORAGE_KEY_PREFIX}:${uid}` : STORAGE_KEY;
+}
+
+export async function loadAccountsSnapshot(ownerUid?: string): Promise<AccountsSnapshot> {
   try {
-    const raw = await AsyncStorage.getItem(STORAGE_KEY);
+    const raw = await AsyncStorage.getItem(storageKeyForOwner(ownerUid));
     if (!raw) return emptySnapshot();
     const parsed = JSON.parse(raw) as AccountsSnapshot;
     if (!parsed?.entries || !Array.isArray(parsed.entries)) return emptySnapshot();
@@ -39,8 +45,8 @@ export async function loadAccountsSnapshot(): Promise<AccountsSnapshot> {
   }
 }
 
-export async function saveAccountsSnapshot(s: AccountsSnapshot): Promise<void> {
-  await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(s));
+export async function saveAccountsSnapshot(s: AccountsSnapshot, ownerUid?: string): Promise<void> {
+  await AsyncStorage.setItem(storageKeyForOwner(ownerUid), JSON.stringify(s));
 }
 
 export function makeEntryId(): string {
@@ -105,9 +111,10 @@ export async function appendBookingIncomeEntry(input: {
   amount: number;
   note: string;
   kind?: AccountEntryKind;
+  ownerUid?: string;
 }): Promise<AccountEntry | null> {
   if (!Number.isFinite(input.amount) || input.amount <= 0) return null;
-  const snap = await loadAccountsSnapshot();
+  const snap = await loadAccountsSnapshot(input.ownerUid);
   if (snap.entries.some((e) => e.linkedBookingId === input.linkedBookingId)) return null;
   const entry: AccountEntry = {
     id: makeEntryId(),
@@ -117,6 +124,6 @@ export async function appendBookingIncomeEntry(input: {
     at: new Date().toISOString(),
     linkedBookingId: input.linkedBookingId
   };
-  await saveAccountsSnapshot({ entries: [entry, ...snap.entries] });
+  await saveAccountsSnapshot({ entries: [entry, ...snap.entries] }, input.ownerUid);
   return entry;
 }

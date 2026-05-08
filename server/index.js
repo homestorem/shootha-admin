@@ -8,6 +8,8 @@ const { OTPiqClient } = require("otpiq");
 const app = express();
 const PORT = Number(process.env.PORT || 4000);
 const OTP_IQ_API_KEY = (process.env.OTP_IQ_API_KEY || "").trim();
+const NOTIFICATION_API_KEY = (process.env.NOTIFICATION_API_KEY || "").trim();
+const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
 const otpClient = OTP_IQ_API_KEY ? new OTPiqClient({ apiKey: OTP_IQ_API_KEY }) : null;
 
 function assertOtpServerEnv() {
@@ -18,6 +20,9 @@ function assertOtpServerEnv() {
     }
     if (!(process.env.CORS_ORIGINS || "").trim()) {
       throw new Error("[otp-server] Missing required env: CORS_ORIGINS (comma-separated browser origins)");
+    }
+    if (!NOTIFICATION_API_KEY) {
+      throw new Error("[otp-server] Missing required env: NOTIFICATION_API_KEY");
     }
   }
 }
@@ -36,6 +41,22 @@ const phoneOtpSendGuard = new Map();
 const phoneOtpRouteHits = new Map();
 const PHONE_OTP_ROUTE_WINDOW_MS = 60 * 1000;
 const PHONE_OTP_ROUTE_MAX_PER_WINDOW = 5;
+
+function getFirebaseAdminDb() {
+  const json = String(process.env.FIREBASE_SERVICE_ACCOUNT_JSON || "").trim();
+  if (!json) {
+    throw new Error("Missing FIREBASE_SERVICE_ACCOUNT_JSON");
+  }
+  const admin = require("firebase-admin");
+  if (!admin.apps.length) {
+    admin.initializeApp({ credential: admin.credential.cert(JSON.parse(json)) });
+  }
+  return admin.firestore();
+}
+
+function isExpoPushToken(value) {
+  return /^ExponentPushToken\[[^\]]+\]$/.test(String(value || "").trim());
+}
 
 function getPhoneSendGuard(phone) {
   let g = phoneOtpSendGuard.get(phone);
@@ -165,6 +186,27 @@ async function verifyOtpAppCheckToken(req, res, next) {
   } catch {
     return res.status(401).json({ success: false, code: "app_check_failed", message: "Invalid App Check token." });
   }
+}
+
+function verifyNotificationApiKey(req, res, next) {
+  if (!NOTIFICATION_API_KEY) {
+    // Keep dev ergonomics when the key is not configured.
+    if (process.env.NODE_ENV !== "production") return next();
+    return res.status(500).json({
+      success: false,
+      code: "server_misconfigured",
+      message: "NOTIFICATION_API_KEY is not configured."
+    });
+  }
+  const provided = String(req.get("x-api-key") || "").trim();
+  if (!provided || provided !== NOTIFICATION_API_KEY) {
+    return res.status(401).json({
+      success: false,
+      code: "unauthorized",
+      message: "Invalid API key."
+    });
+  }
+  return next();
 }
 
 const otpLimiter = rateLimit({
@@ -299,6 +341,94 @@ app.post("/otp/verify", async (req, res) => {
 
   codeStore.delete(key);
   return res.json({ success: true, verified: true, token: `otp-${Date.now()}` });
+});
+
+app.post("/send-notification", verifyNotificationApiKey, async (req, res) => {
+  try {
+    const userId = String(req.body?.userId || "").trim();
+    const title = String(req.body?.title || "").trim();
+    const body = String(req.body?.body || "").trim();
+    const data = req.body?.data && typeof req.body.data === "object" ? req.body.data : {};
+
+    if (!userId || !title || !body) {
+      return res.status(400).json({
+        success: false,
+        code: "invalid_payload",
+        message: "userId, title, body are required."
+      });
+    }
+
+    const db = getFirebaseAdminDb();
+    const userRef = db.collection("users").doc(userId);
+    const userSnap = await userRef.get();
+    if (!userSnap.exists) {
+      return res.status(404).json({ success: false, code: "user_not_found", message: "User not found." });
+    }
+
+    const userData = userSnap.data() || {};
+    const pushToken = String(userData.pushToken || "").trim();
+    if (!isExpoPushToken(pushToken)) {
+      return res.status(400).json({
+        success: false,
+        code: "invalid_push_token",
+        message: "Missing or invalid Expo push token for this user."
+      });
+    }
+
+    const payload = {
+      to: pushToken,
+      title,
+      body,
+      sound: "default",
+      priority: "high",
+      channelId: "default",
+      data
+    };
+
+    const expoResp = await fetch(EXPO_PUSH_URL, {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+        "Accept-encoding": "gzip, deflate",
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(payload)
+    });
+
+    const expoJson = await expoResp.json().catch(() => ({}));
+    const item = Array.isArray(expoJson?.data) ? expoJson.data[0] : expoJson?.data;
+    const itemError = item?.status === "error" ? item?.details?.error || item?.message : null;
+
+    if (itemError === "DeviceNotRegistered") {
+      await userRef.set(
+        {
+          pushToken: null,
+          pushTokenInvalidAt: new Date().toISOString()
+        },
+        { merge: true }
+      );
+    }
+
+    if (!expoResp.ok || item?.status === "error") {
+      return res.status(502).json({
+        success: false,
+        code: "expo_push_failed",
+        message: itemError || "Failed to send push notification.",
+        expo: expoJson
+      });
+    }
+
+    return res.json({
+      success: true,
+      expo: expoJson
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      code: "server_error",
+      message: String(error?.message || "send-notification failed")
+    });
+  }
 });
 
 app.get("/health", (_req, res) => {

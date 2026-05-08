@@ -9,6 +9,9 @@
       "distribution": "internal",
       "env": {
         "NPM_CONFIG_LEGACY_PEER_DEPS": "true"
+      },
+      "android": {
+        "buildType": "apk"
       }
     },
     "preview": {
@@ -25,6 +28,9 @@
       "autoIncrement": true,
       "env": {
         "NPM_CONFIG_LEGACY_PEER_DEPS": "true"
+      },
+      "android": {
+        "buildType": "app-bundle"
       }
     }
   },

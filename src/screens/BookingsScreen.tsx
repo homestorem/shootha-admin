@@ -349,7 +349,7 @@ export const BookingsScreen: React.FC = () => {
   useFocusEffect(
     useCallback(() => {
       setAttendanceClockTick((n) => n + 1);
-      void processDueWalletSettlements();
+      void processDueWalletSettlements(user?.id ?? user?.uid);
       if (canSync) void refetch();
       if (useFs && user?.id) {
         void queryClient.invalidateQueries({ queryKey: ["ownerFields", user.id] });
@@ -473,7 +473,8 @@ export const BookingsScreen: React.FC = () => {
           bookingRef: String(result.id),
           endAtIso,
           delayMinutes: 15,
-          note: `استقطاع تلقائي بعد انتهاء الحجز +15 دقيقة`
+          note: `استقطاع تلقائي بعد انتهاء الحجز +15 دقيقة`,
+          ownerUid: user?.id ?? user?.uid
         });
       })();
       void queryClient.invalidateQueries({ queryKey: ["bookings", user?.id] });

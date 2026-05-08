@@ -9,36 +9,43 @@ type Props = {
   style?: StyleProp<TextStyle>;
 };
 
-/**
- * SHOOT'HA BUSINESS — نفس ألوان صفحة الحجوزات: SHOOT' أخضر، HA أبيض، BUSINESS بلون عميق/فاتح.
- * ظل خفيف لتحسين التباين على خلفية الملعب.
- */
+/** شعار نصّي موحّد لاسم التطبيق. */
 export function BrandBusinessMark({ textAlign = "right", style }: Props) {
   const { palette } = useSettings();
 
   const base = useMemo(
     (): TextStyle => ({
-      fontSize: 13,
+      fontSize: 18,
       fontFamily: fontFamily.sansBold,
-      letterSpacing: 1.4,
-      textAlign,
-      textShadowColor: palette.scheme === "dark" ? "rgba(0,0,0,0.55)" : "rgba(0,0,0,0.28)",
-      textShadowOffset: { width: 0, height: 1 },
-      textShadowRadius: 4
+      fontWeight: "900",
+      letterSpacing: 0.35,
+      textAlign
     }),
-    [palette.scheme, textAlign]
+    [textAlign]
   );
 
-  const businessColor = palette.scheme === "light" ? palette.primaryDeep : palette.primaryLight;
+  // لمسة نيون خفيفة بالوضع الداكن فقط.
+  const isDark = palette.scheme === "dark";
+  const brandColor = isDark ? "#9CFF7A" : "#1A2A22";
 
   return (
-    <Text style={[base, style]}>
-      <Text style={{ color: palette.primary }}>SHOOT&apos;</Text>
-      <Text style={{ color: "#FFFFFF" }}>HA</Text>
-      <Text style={{ color: businessColor }}>
-        {" "}
-        BUSINESS
-      </Text>
+    <Text
+      style={[
+        base,
+        {
+          color: brandColor,
+          ...(isDark
+            ? {
+                textShadowColor: "rgba(57,255,20,0.35)",
+                textShadowOffset: { width: 0, height: 0 },
+                textShadowRadius: 6
+              }
+            : null)
+        },
+        style
+      ]}
+    >
+      SHOOT'HA Business
     </Text>
   );
 }

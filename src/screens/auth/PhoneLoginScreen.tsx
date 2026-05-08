@@ -20,7 +20,12 @@ export const PhoneLoginScreen: React.FC<Props> = ({ navigation }) => {
     () =>
       StyleSheet.create({
         btn: {
-          marginBottom: spacing.sm
+          marginBottom: spacing.sm,
+          shadowColor: palette.scheme === "dark" ? "#00C853" : "#0A5C36",
+          shadowOffset: { width: 0, height: 10 },
+          shadowOpacity: palette.scheme === "dark" ? 0.34 : 0.28,
+          shadowRadius: 16,
+          elevation: 10
         },
         footerLinks: {
           alignItems: "center",

@@ -3,6 +3,7 @@ import dayjs from "../lib/dayjs";
 import { settlementIncomeFromAttendance } from "../lib/bookingAttendance";
 import { appendBookingIncomeEntry, type AccountEntry } from "./accountsStore";
 import { upsertFieldFinanceLedgerEntry } from "./fieldFinancesFirestore";
+import { fetchMergedFieldsForUid } from "./ownerFieldsFirestore";
 import { fetchOwnerBookingsForUid } from "./ownerBookingsFirestore";
 import { endTimeFromDuration, fetchVenueBookingsForOwner } from "./venueBookingsFirestore";
 
@@ -29,19 +30,23 @@ export async function syncAccountsIncomeFromBookings(input: {
     }).catch(() => undefined);
   };
 
-  const [ownerBookings, venueBookings] = await Promise.all([
+  const [ownerFields, ownerBookings, venueBookings] = await Promise.all([
+    fetchMergedFieldsForUid(ownerUid, ownerPublicId),
     fetchOwnerBookingsForUid(ownerUid),
     fetchVenueBookingsForOwner(ownerPublicId)
   ]);
+  const ownedFieldIds = new Set(ownerFields.map((f) => String(f.id ?? "").trim()).filter(Boolean));
   const now = dayjs();
 
   for (const b of ownerBookings) {
+    if (ownedFieldIds.size > 0 && !ownedFieldIds.has(String(b.fieldId ?? "").trim())) continue;
     const isApprovedLike = b.status === "approved" || b.status === "confirmed";
     const ended = dayjs(`${b.date}T${b.endTime}:00`).isBefore(now);
     if (!isApprovedLike || (!b.isSettled && !ended)) continue;
     const amount = settlementIncomeFromAttendance(Number(b.totalPrice ?? 0), b.attendanceStatus);
     if (!Number.isFinite(amount) || amount <= 0) continue;
     const entry = await appendBookingIncomeEntry({
+      ownerUid,
       linkedBookingId: `owner:${b.id}`,
       amount,
       kind: "income_booking",
@@ -51,6 +56,7 @@ export async function syncAccountsIncomeFromBookings(input: {
   }
 
   for (const v of venueBookings) {
+    if (ownedFieldIds.size > 0 && !ownedFieldIds.has(String(v.venueId ?? "").trim())) continue;
     const isApprovedLike = v.status === "approved" || v.status === "confirmed";
     const endTime = endTimeFromDuration(v.date, v.startTime, v.duration);
     const ended = dayjs(`${v.date}T${endTime}:00`).isBefore(now);
@@ -59,6 +65,7 @@ export async function syncAccountsIncomeFromBookings(input: {
     const amount = settlementIncomeFromAttendance(Number(v.totalPrice ?? v.price ?? 0), v.attendanceStatus);
     if (!Number.isFinite(amount) || amount <= 0) continue;
     const entry = await appendBookingIncomeEntry({
+      ownerUid,
       linkedBookingId: `venue:${v.id}`,
       amount,
       kind: "income_booking",

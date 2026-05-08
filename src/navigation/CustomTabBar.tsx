@@ -110,7 +110,9 @@ function createTabStyles(palette: AppPalette) {
       overflow: "hidden",
       minHeight: 74,
       position: "relative",
-      backgroundColor: "transparent"
+      backgroundColor: "transparent",
+      borderWidth: 1.2,
+      borderColor: isDark ? "rgba(57, 255, 20, 0.55)" : "rgba(0, 200, 83, 0.38)"
     },
     blurFill: {
       ...StyleSheet.absoluteFillObject,
@@ -124,6 +126,7 @@ function createTabStyles(palette: AppPalette) {
     },
     barRow: {
       flexDirection: "row",
+      direction: "ltr",
       justifyContent: "space-around",
       alignItems: "center",
       paddingVertical: 9,

@@ -1,6 +1,6 @@
 import { DARK_MODE_NEON_GREEN } from "../theme/colors";
 
-/** ألوان مرجع تصميم الصفحة الرئيسية (Shoot'ha Business — داكن + نيون) */
+/** ألوان مرجع تصميم الصفحة الرئيسية (SHOOT'HA Business — داكن + نيون) */
 export const HOME_NEON = DARK_MODE_NEON_GREEN;
 export const HOME_NEON_DIM = "rgba(57, 255, 20, 0.35)";
 export const HOME_ACCENT = "#2ECC71";

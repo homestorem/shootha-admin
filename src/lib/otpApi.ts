@@ -1,4 +1,34 @@
 const OTP_TIMEOUT_MS = 15000;
+/** إرسال OTP قد يستغرق وقتاً أطول عند إيقاظ خادم (مثل Render) */
+const OTP_SEND_TIMEOUT_MS = 30000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * إعادة محاولة عند فشل الشبكة المؤقت (Failed to fetch / timeout) — مناسب لخدمات تنام بعد الخمول.
+ */
+async function fetchOtpResilient(url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const backoffAfterFailMs = [1200, 2800];
+  let lastErr: unknown;
+  for (let attempt = 0; attempt <= backoffAfterFailMs.length; attempt++) {
+    try {
+      return await fetchWithTimeout(url, init, timeoutMs);
+    } catch (e: unknown) {
+      lastErr = e;
+      const err = e instanceof OtpApiError ? e : null;
+      if (!err || (err.code !== "otp_server_unreachable" && err.code !== "otp_timeout")) {
+        throw e;
+      }
+      if (attempt === backoffAfterFailMs.length) {
+        throw e;
+      }
+      await sleep(backoffAfterFailMs[attempt] ?? 0);
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error(String(lastErr));
+}
 
 function getReadableUrl(url: string) {
   try {
@@ -143,14 +173,19 @@ async function requestOtp(path: "/otp/send" | "/otp/verify", body: Record<string
   const bases = getOtpApiUrls();
   let lastNetworkError: OtpApiError | null = null;
   const headers = await buildOtpFetchHeaders();
+  const timeoutMs = path === "/otp/send" ? OTP_SEND_TIMEOUT_MS : OTP_TIMEOUT_MS;
 
   for (const base of bases) {
     try {
-      const response = await fetchWithTimeout(`${base}${path}`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(body)
-      });
+      const response = await fetchOtpResilient(
+        `${base}${path}`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify(body)
+        },
+        timeoutMs
+      );
 
       let payload: OtpServerResponse = {};
       try {
@@ -205,4 +240,4 @@ export async function verifyOtpRequest(
   };
 }
 
-export { OTP_TIMEOUT_MS };
+export { OTP_TIMEOUT_MS, OTP_SEND_TIMEOUT_MS };

@@ -9,10 +9,8 @@ export type MainAppStackParamList = {
   };
   Wallet: undefined;
   SocialPlatforms: undefined;
-  EditAccount: undefined;
   FieldDataRequest: undefined;
   SupportContact: undefined;
-  SupportChat: undefined;
   TermsConditions: undefined;
   PrivacyPolicy: undefined;
   DeleteAccountPhone: undefined;

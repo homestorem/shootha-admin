@@ -83,9 +83,9 @@ export const AccountsScreen: React.FC = () => {
   const personName = (user?.display_name?.trim() || tr("profile.guestName")).trim();
 
   const applyLocalSnapshot = useCallback(async () => {
-    const snap = await loadAccountsSnapshot();
+    const snap = await loadAccountsSnapshot(user?.id);
     setEntries(snap.entries.sort((a, b) => (a.at < b.at ? 1 : -1)));
-  }, []);
+  }, [user?.id]);
 
   const runBookingIncomeSync = useCallback(async () => {
     if (!user?.id) return;
@@ -149,7 +149,7 @@ export const AccountsScreen: React.FC = () => {
    * فيرفع إلى Firestore حركة قديمة ويتجاهل الحركة الجديدة.
    */
   const persist = async (next: AccountEntry[], entryForCloud?: AccountEntry) => {
-    await saveAccountsSnapshot({ entries: next });
+    await saveAccountsSnapshot({ entries: next }, user?.id);
     const sorted = [...next].sort((a, b) => (a.at < b.at ? 1 : -1));
     setEntries(sorted);
     const ledgerEntry = entryForCloud ?? sorted[0];

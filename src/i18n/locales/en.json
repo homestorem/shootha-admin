@@ -12,7 +12,6 @@
   },
   "nav": {
     "wallet": "Wallet",
-    "editAccount": "Edit account",
     "fieldDataRequest": "Field data update request",
     "supportContact": "Support",
     "terms": "Terms and conditions",
@@ -41,7 +40,7 @@
     "logout": "Log out",
     "guestName": "Guest",
     "walletSub": "Balance and transactions",
-    "platformsTitle": "Shoot'ha Business platforms",
+    "platformsTitle": "SHOOT'HA Business platforms",
     "platformsSub": "Follow us on social media",
     "supportSub": "Contact support"
   },
@@ -109,16 +108,7 @@
     "openBookingHint": "Open booking"
   },
   "supportChat": {
-    "title": "Support chat",
-    "statusOpen": "Open session",
-    "inputPlaceholder": "Type your message…",
-    "emptyHint": "Your messages and support replies will appear here.",
-    "needFirebase": "Enable Firebase in the environment to use chat.",
-    "needLogin": "Sign in to view the conversation.",
-    "sendFailed": "Could not send the message.",
-    "permissionHint": "Could not load chat — deploy Firestore rules (support_messages path) or check permissions.",
-    "hubIntro": "Message us in the app, or use WhatsApp below.",
-    "openInApp": "Open in-app support chat",
+    "hubIntro": "Contact our support team via WhatsApp using the button below.",
     "openWhatsapp": "Open WhatsApp",
     "whatsappMissing": "WhatsApp link is not configured",
     "openLinkFailed": "Could not open the link"
@@ -199,5 +189,43 @@
     "emptyTitle": "No bookings",
     "loginRequiredBookings": "Sign in to view bookings.",
     "emptySubtitle": "Any new booking will appear here."
+  },
+  "termsScreen": {
+    "heroBadge": "Terms of use",
+    "docTitle": "Terms and conditions — SHOOT'HA Business",
+    "docSubtitle": "Between the platform and the sports facility owner",
+    "introTitle": "Introduction",
+    "introBody": "This agreement is a binding electronic contract between the SHOOT'HA Business platform (the “Platform” or “Administration”) and the sports facility owner (the “Merchant” or “Field owner”). By tapping “I agree” or using the app’s services, the merchant declares full acceptance of all clauses below.",
+    "s1Title": "Clause 1 — Financial policy and commissions",
+    "s1Body": "Commission rate: The field owner agrees that a commission of (15%) will be deducted from the total value of each booking completed through the SHOOT'HA Business app.\n\nCrediting earnings: Electronic booking amounts are credited to the field owner’s in-app wallet as soon as the player successfully completes payment.\n\nWithdrawals: The field owner may request a withdrawal when the available balance reaches the minimum threshold (50,000 IQD). The Platform undertakes to transfer the amount through the agreed channel within (24–48) business hours.",
+    "s2Title": "Clause 2 — Cancellation and refunds",
+    "s2Body": "Protecting the booking: The field owner must secure the pitch for the player as soon as the booking appears as “Paid” in their control panel.\n\nNo-show: If the team does not attend and (15 minutes) have passed from the scheduled match time, the full booking amount is forfeited to the field owner (after the app’s commission is deducted), and the player may not claim a refund.\n\nAttendance confirmation: The field owner must tap “Confirm attendance” or “Did not attend” to document the financial status and keep reports accurate.\n\nCancellation by the field: Paid bookings may not be cancelled except in proven cases of force majeure. In case of unjustified cancellation, the field owner bears responsibility to compensate the player or offer an alternative slot, and the Platform may suspend the field’s account.",
+    "s3Title": "Clause 3 — Operational and legal obligations",
+    "s3Body": "Data accuracy: The field owner is responsible for the accuracy of prices, opening hours, and the field’s geographic location. Any double booking caused by failure to update data manually is solely the field owner’s responsibility.\n\nPhysical liability disclaimer: SHOOT'HA Business is a technical intermediary for booking coordination only and assumes no legal, financial, or customary (tribal) liability for injuries, fights, or death—God forbid—on the sports premises.\n\nSafety of property: The field owner is responsible for protecting players’ personal belongings and providing a safe sporting environment.",
+    "s4Title": "Clause 4 — Oversight and disputes",
+    "s4Body": "Activity logs: Digital records stored on SHOOT'HA Business servers (audit logs) are the sole legal reference and decisive evidence in resolving any financial dispute between a player and the field owner.\n\nFraud attempts: Any attempt by the field owner to arrange with a player outside the app to evade commission, or to file false “no-show” reports to seize funds, will result in permanent account suspension and forfeiture of balances as compensation to the Platform.",
+    "s5Title": "Clause 5 — Electronic acceptance",
+    "s5Body": "The field owner acknowledges that their electronic acceptance of this agreement has the same full legal effect as a handwritten signature under the laws in force in the Republic of Iraq."
+  },
+  "privacyScreen": {
+    "heroBadge": "Privacy policy",
+    "docTitle": "Privacy policy — SHOOT'HA Business",
+    "docSubtitle": "Protecting field owners’ and facilities’ data",
+    "introTitle": "Overview",
+    "introBody": "The SHOOT'HA Business app administration is committed to protecting the privacy and security of data shared by field owners and sports facilities. This policy explains what data we collect, how we use it, and the safeguards we apply in line with applicable technical and legal standards.",
+    "s1Title": "1) Data we collect",
+    "s1Body": "We collect only the data needed to run administrative and financial operations, including:\n\nAccount information: the authorized person’s full name, mobile phone number, and email address.\n\nFacility data: field name, precise geographic location (GPS), facility photos, and available services.\n\nFinancial data: daily booking records, income and expense details, and e-wallet information linked to profit withdrawals.\n\nUsage data: sign-in history, in-app interactions, and technical crash/error reports to improve the user experience.",
+    "s2Title": "2) How we use data",
+    "s2Body": "Data we collect is used exclusively for the following purposes:\n\nOrganizing and displaying booking schedules and facilitating communication with players.\n\nManaging and processing financial transfers through the electronic payment gateway (Wayl).\n\nProviding technical support and resolving financial or operational disputes.\n\nDeveloping app features based on real usage statistics.\n\nSending essential notifications about new bookings or financial updates.",
+    "s3Title": "3) Sharing data with third parties",
+    "s3Body": "We do not sell or rent your business data to marketing entities. Data is shared only with:\n\nPayment gateway (Wayl): to collect payments and process withdrawals.\n\nGoogle Maps: to show the field location accurately to players in the SHOOT'HA Business app.\n\nPlayers (end users): they only see public field information (name, location, price, and available times) to complete a booking.",
+    "s4Title": "4) Data protection and digital security",
+    "s4Body": "All data is stored on cloud servers protected with advanced encryption.\n\nAll financial transactions are processed through a licensed payment gateway (Wayl). The SHOOT'HA Business app does not store sensitive bank card information for users or field owners.",
+    "s5Title": "5) Field owner rights",
+    "s5Body": "The field owner may at any time:\n\nUpdate or correct facility or pricing data through the dashboard.\n\nRequest a copy of their financial records.\n\nRequest account closure and data deletion (subject to settling any outstanding financial matters with the platform).",
+    "s6Title": "6) Changes to this privacy policy",
+    "s6Body": "We may update this policy periodically to reflect technical and legal changes. You will be notified of any material changes through official in-app notifications.",
+    "s7Title": "7) Contact us",
+    "s7Body": "For any questions or reports regarding the privacy of your data, you can contact the payments and technical support team directly through the Support section in the app."
   }
 }

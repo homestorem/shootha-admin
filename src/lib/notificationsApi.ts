@@ -152,6 +152,10 @@ function mapFieldRequestsSnapshot(snap: QuerySnapshot, userId: string): Notifica
   const rows: NotificationRow[] = [];
   snap.forEach((d) => {
     const data = d.data() as Record<string, unknown>;
+    const requestUserUid = typeof data.userUid === "string" ? data.userUid.trim() : "";
+    if (!requestUserUid || requestUserUid !== userId) {
+      return;
+    }
     const st = normalizeStatus(data.status);
     const approved = isApprovedStatus(st);
     const rejected = isRejectedStatus(st);
@@ -201,10 +205,29 @@ function mapInboxSnapshot(snap: QuerySnapshot, userId: string): NotificationRow[
   return rows;
 }
 
-function mapRootNotificationsSnapshot(snap: QuerySnapshot, userId: string): NotificationRow[] {
+function mapRootNotificationsSnapshot(
+  snap: QuerySnapshot,
+  userId: string,
+  ownerPublicId?: string | null
+): NotificationRow[] {
   const rows: NotificationRow[] = [];
+  const ownerKey = ownerPublicId?.trim() || "";
   snap.forEach((d) => {
-    const base = mapDoc(d.id, d.data() as Record<string, unknown>, userId);
+    const raw = d.data() as Record<string, unknown>;
+    const targetUserUid = typeof raw.userUid === "string" ? raw.userUid.trim() : "";
+    const targetUserLegacy = typeof raw.user_id === "string" ? raw.user_id.trim() : "";
+    const targetOwnerUserId = typeof raw.userId === "string" ? raw.userId.trim() : "";
+    const targetOwnerId = typeof raw.ownerId === "string" ? raw.ownerId.trim() : "";
+    const directUidMatch = targetUserUid === userId || targetUserLegacy === userId;
+    const ownerMatch = Boolean(ownerKey) && (targetOwnerUserId === ownerKey || targetOwnerId === ownerKey);
+    if (!directUidMatch && !ownerMatch) return;
+
+    const base = mapDoc(d.id, raw, userId);
+    /**
+     * إشعارات الموافقة/الرفض حساسة: يجب أن تكون موجّهة مباشرة إلى uid
+     * لتفادي عرض نتيجة طلب ملعب لمستخدم آخر بسبب توجيه ownerId عام.
+     */
+    if (base.type === "approval" && !directUidMatch) return;
     rows.push({ ...base, id: `${ROOT_NOTIFICATIONS_PREFIX}${d.id}` });
   });
   return rows;
@@ -329,10 +352,10 @@ export async function fetchNotificationsForUser(
 
   const inboxRows = inboxSnap ? mapInboxSnapshot(inboxSnap, firebaseUid) : [];
   const rootRows = mergeRootNotificationRowsMany(
-    rootUidSnap ? mapRootNotificationsSnapshot(rootUidSnap, firebaseUid) : [],
-    rootLegacySnap ? mapRootNotificationsSnapshot(rootLegacySnap, firebaseUid) : [],
-    rootOwnerSnap ? mapRootNotificationsSnapshot(rootOwnerSnap, firebaseUid) : [],
-    rootOwnerIdFieldSnap ? mapRootNotificationsSnapshot(rootOwnerIdFieldSnap, firebaseUid) : []
+    rootUidSnap ? mapRootNotificationsSnapshot(rootUidSnap, firebaseUid, ownerKey) : [],
+    rootLegacySnap ? mapRootNotificationsSnapshot(rootLegacySnap, firebaseUid, ownerKey) : [],
+    rootOwnerSnap ? mapRootNotificationsSnapshot(rootOwnerSnap, firebaseUid, ownerKey) : [],
+    rootOwnerIdFieldSnap ? mapRootNotificationsSnapshot(rootOwnerIdFieldSnap, firebaseUid, ownerKey) : []
   );
   const frRows = frSnap ? mapFieldRequestsSnapshot(frSnap, firebaseUid) : [];
 
@@ -420,7 +443,7 @@ export function subscribeNotificationsForUser(
   const unsubRootUid = onSnapshot(
     rootUidQ,
     (snap) => {
-      rootUidRows = mapRootNotificationsSnapshot(snap, firebaseUid);
+      rootUidRows = mapRootNotificationsSnapshot(snap, firebaseUid, ownerKey);
       emit();
     },
     (e) => snapshotListenerError(e, onError)
@@ -429,7 +452,7 @@ export function subscribeNotificationsForUser(
   const unsubRootLegacy = onSnapshot(
     rootLegacyQ,
     (snap) => {
-      rootLegacyRows = mapRootNotificationsSnapshot(snap, firebaseUid);
+      rootLegacyRows = mapRootNotificationsSnapshot(snap, firebaseUid, ownerKey);
       emit();
     },
     (e) => snapshotListenerError(e, onError)
@@ -439,7 +462,7 @@ export function subscribeNotificationsForUser(
     ? onSnapshot(
         rootOwnerQ,
         (snap) => {
-          rootOwnerRows = mapRootNotificationsSnapshot(snap, firebaseUid);
+          rootOwnerRows = mapRootNotificationsSnapshot(snap, firebaseUid, ownerKey);
           emit();
         },
         (e) => snapshotListenerError(e, onError)
@@ -450,7 +473,7 @@ export function subscribeNotificationsForUser(
     ? onSnapshot(
         rootOwnerIdFieldQ,
         (snap) => {
-          rootOwnerIdFieldRows = mapRootNotificationsSnapshot(snap, firebaseUid);
+          rootOwnerIdFieldRows = mapRootNotificationsSnapshot(snap, firebaseUid, ownerKey);
           emit();
         },
         (e) => snapshotListenerError(e, onError)

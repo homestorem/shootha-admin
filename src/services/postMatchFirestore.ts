@@ -148,6 +148,7 @@ export async function completePostMatch(input: CompletePostMatchInput): Promise<
     }
 
     const entryOwner = await appendBookingIncomeEntry({
+      ownerUid: input.ownerUid,
       linkedBookingId: `owner:${id}`,
       amount: incomeOwner,
       kind: ob.source === "manual" ? "income_manual" : "income_external",
@@ -227,6 +228,7 @@ export async function completePostMatch(input: CompletePostMatchInput): Promise<
   }
 
   const entryVenue = await appendBookingIncomeEntry({
+    ownerUid: input.ownerUid,
     linkedBookingId: `venue:${vid}`,
     amount: incomeVenue,
     kind: "income_external",

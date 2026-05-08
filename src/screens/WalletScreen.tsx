@@ -31,11 +31,12 @@ export const WalletScreen: React.FC = () => {
   const fmt = (n: unknown) => formatNumberEn(typeof n === "number" && Number.isFinite(n) ? n : 0);
 
   const reload = useCallback(async () => {
-    await processDueWalletSettlements();
-    const snap = await loadWalletSnapshot();
+    const ownerUid = user?.id ?? user?.uid;
+    await processDueWalletSettlements(ownerUid);
+    const snap = await loadWalletSnapshot(ownerUid);
     setEntries(snap.entries);
     setAvailable(snap.account.availableBalance);
-  }, []);
+  }, [user?.id, user?.uid]);
 
   useFocusEffect(
     useCallback(() => {

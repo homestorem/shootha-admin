@@ -1,25 +1,31 @@
 {
   "expo": {
-    "name": "SHOOT'HA BUSINESS",
+    "name": "SHOOT'HA Business",
     "slug": "shoota-business",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "automatic",
+    "userInterfaceStyle": "dark",
     "splash": {
-      "image": "./assets/splash.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#0C8E4E"
+      "image": "./assets/splash-solid.png",
+      "resizeMode": "cover",
+      "backgroundColor": "#228B22"
     },
     "assetBundlePatterns": [
       "**/*"
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.shootabusiness.app",
+      "bundleIdentifier": "com.shootha",
+      "googleServicesFile": "./GoogleService-Info.plist",
       "infoPlist": {
         "CFBundleDevelopmentRegion": "ar",
-        "CFBundleAllowMixedLocalizations": false
+        "CFBundleAllowMixedLocalizations": false,
+        "UIBackgroundModes": [
+          "remote-notification",
+          "remote-notification"
+        ],
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
@@ -27,19 +33,32 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#00E676"
       },
-      "package": "com.shootabusiness.app"
+      "package": "com.shootabusiness.app",
+      "googleServicesFile": "./google-services.json"
     },
-    
     "plugins": [
       "./plugins/withAndroidGradlePluginRepositories.js",
-      "@react-native-firebase/app",
-      "@react-native-firebase/app-check"
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/adaptive-icon.png",
+          "color": "#00C853",
+          "defaultChannel": "default"
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#228B22",
+          "image": "./assets/splash-solid.png",
+          "resizeMode": "cover"
+        }
+      ]
     ],
     "extra": {
       "eas": {
-        "projectId": "1aea1772-9740-49f0-a2f5-e7bfc576e5a4"
+        "projectId": "14beb36b-240f-4df8-9db2-40495009593b"
       }
-    },
-    "owner": "othman5174"
+    }
   }
 }

@@ -4,6 +4,9 @@ import { ThemeMode, paletteFor, type AppPalette } from "../theme/colors";
 import { AppLanguage, isRtlLanguage, normalizeLanguage, translate } from "../i18n";
 
 const STORAGE_WHATSAPP = "@settings_support_whatsapp";
+
+/** رقم واتساب الدعم الافتراضي (عراقي) — يُستخدم عند عدم وجود قيمة في التخزين */
+const DEFAULT_SUPPORT_WHATSAPP = "07771957775";
 const STORAGE_TERMS_URL = "@settings_terms_url";
 const STORAGE_THEME = "@settings_theme_mode";
 const STORAGE_LANGUAGE = "@settings_language";
@@ -38,7 +41,12 @@ export const SettingsProvider = ({ children }: { children: ReactNode }) => {
       try {
         const entries = await AsyncStorage.multiGet([STORAGE_WHATSAPP, STORAGE_TERMS_URL, STORAGE_THEME, STORAGE_LANGUAGE]);
         if (!alive) return;
-        setSupportWhatsappRaw(entries[0][1] ?? "");
+        const storedWa = (entries[0][1] ?? "").trim();
+        const wa = storedWa || DEFAULT_SUPPORT_WHATSAPP;
+        setSupportWhatsappRaw(wa);
+        if (!storedWa) {
+          void AsyncStorage.setItem(STORAGE_WHATSAPP, DEFAULT_SUPPORT_WHATSAPP);
+        }
         setTermsUrlRaw(entries[1][1] ?? "");
         const tm = entries[2][1];
         if (tm === "dark" || tm === "light") {

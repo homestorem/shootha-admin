@@ -3,7 +3,7 @@
  */
 export const t = {
   auth: {
-    authHubTitle: "ابدأ مع shoot'ha",
+    authHubTitle: "ابدأ مع SHOOT'HA Business",
     authHubSubtitle: "أنشئ حساباً كمالك ملعب، أو سجّل دخولك إذا كان عندك حساب مسبقاً.",
     createAccount: "إنشاء حساب",
     loginExisting: "تسجيل الدخول",
@@ -216,11 +216,11 @@ export const t = {
     subtitle: "إدارة حسابك وخدماتك",
     walletTitle: "المحفظة",
     walletSub: "رصيدك والمعاملات",
-    aboutTitle: "عن شوتها بزنس",
+    aboutTitle: "عن SHOOT'HA Business",
     aboutSub: "معلومات عن التطبيق",
     privacyTitle: "سياسة الخصوصية",
     privacySub: "حماية بياناتك",
-    platformsTitle: "منصات شوتها بزنس",
+    platformsTitle: "منصات SHOOT'HA Business",
     platformsSub: "تابعنا على المنصات",
     whatsappTitle: "واتساب",
     whatsappSub: "تواصل مباشر",
@@ -228,24 +228,22 @@ export const t = {
     websiteSub: "زيارة الموقع",
     linksNotSet: "روابط الدعم غير مُعدّة بعد",
     openLinkFailed: "تعذّر فتح الرابط",
-    aboutToast: "Shoot'ha Business — منصة لإدارة الحجوزات والمدفوعات والتواصل.",
-    platformsToast: "قريباً: روابط منصات شوتها بزنس"
+    aboutToast: "SHOOT'HA Business — منصة لإدارة الحجوزات والمدفوعات والتواصل.",
+    platformsToast: "قريباً: روابط منصات SHOOT'HA Business"
   },
   platforms: {
-    comingSoon: "قريباً",
     instagramTitle: "الانستجرام",
-    instagramSub: "Shoot'ha",
+    instagramSub: "@shootha.app",
     facebookTitle: "الفيس بوك",
-    facebookSub: "Shoot'ha",
+    facebookSub: "SHOOT'HA Business",
     tiktokTitle: "التيك توك",
-    tiktokSub: "Shoot'ha",
+    tiktokSub: "@shootha.app",
     whatsappTitle: "الواتساب",
     whatsappSub: "تواصل مباشر",
     websiteTitle: "الموقع الرسمي",
-    websiteSub: "زيارة الموقع",
+    websiteSub: "www.shootha.com",
     phoneTitle: "رقم الهاتف",
-    phoneSub: "اضغط لعرض الرقم",
-    phoneHint: "ضع رقم الهاتف في الإعدادات لاحقاً"
+    phoneSub: "07771957775 · اتصال"
   },
   bookings: {
     today: "اليوم",
@@ -347,7 +345,7 @@ export const t = {
     statusUpdated: "تم تحديث الحالة",
     screenSubtitle: "متابعة طلبات ملعبك",
     statTapToFilter: "اضغط للتصفية",
-    /** الصفحة الرئيسية — مطابقة تصميم Shoot'ha Business */
+    /** الصفحة الرئيسية — مطابقة تصميم SHOOT'HA Business */
     homeWelcomeName: "مرحباً {{name}} ",
     homeWelcomeSub: "أهلاً بك في منصة شوّتها لإدارة الملاعب",
     homeAddBookingCta: "+ إضافة حجز",
@@ -462,7 +460,6 @@ export const t = {
     title: "الحساب",
     name: "الاسم",
     phone: "رقم الهاتف",
-    editProfile: "تعديل الحساب",
     requestFieldChange: "طلب تعديل بيانات الملعب",
     reportIssue: "إبلاغ عن مشكلة",
     appearance: "المظهر",

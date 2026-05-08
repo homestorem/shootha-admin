@@ -58,3 +58,28 @@ export function resolveContactE164(reqLocal: string, fallbackUserPhone: string |
 export function hasResolvableContact(reqLocal: string, fallbackUserPhone: string | undefined): boolean {
   return resolveContactE164(reqLocal, fallbackUserPhone) != null;
 }
+
+/**
+ * رقم لـ wa.me (أرقام فقط، بدون +): يدعم 964… أو شكلاً محلياً عراقياً 07xxxxxxxxx.
+ */
+export function toWhatsappWaMeDigits(raw: string): string | null {
+  const s = raw.trim();
+  if (!s) return null;
+  if (/^https?:\/\//i.test(s)) return null;
+  const d = digitsOnly(s);
+  if (!d) return null;
+  if (d.startsWith("964") && d.length >= 12 && d.length <= 15) return d;
+  const nat = normalizeNationalDigits(s);
+  if (DEFAULT_DIAL_CODE === "+964" && /^7\d{9}$/.test(nat)) return `964${nat}`;
+  if (d.length >= 10 && d.length <= 15 && !d.startsWith("0")) return d;
+  return null;
+}
+
+/** رابط فتح واتساب من رقم أو https — أو null */
+export function buildWhatsappOpenUrlFromRaw(raw: string): string | null {
+  const s = raw.trim();
+  if (!s) return null;
+  if (/^https?:\/\//i.test(s)) return s;
+  const id = toWhatsappWaMeDigits(s);
+  return id ? `https://wa.me/${id}` : null;
+}

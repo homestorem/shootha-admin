@@ -9,23 +9,15 @@ import { InputLayer } from "../components/InputLayer";
 import { NeonHeroHeader } from "../components/ui/NeonHeroHeader";
 import { useSettings } from "../providers/SettingsProvider";
 import { t } from "../strings";
-import { digitsOnly } from "../lib/phoneDial";
+import { buildWhatsappOpenUrlFromRaw, DEFAULT_DIAL_CODE, normalizeNationalDigits } from "../lib/phoneDial";
+import { SHOOTA_SOCIAL_LINKS } from "../config/shootaSocialLinks";
 import { makeSocialPlatformsStyles } from "./socialPlatformsScreenStyles";
 
-function normalizeHttpUrl(raw: string): string | null {
-  const s = raw.trim();
-  if (!s) return null;
-  if (!/^https?:\/\//i.test(s)) return null;
-  return s;
-}
-
-function buildWhatsappOpenUrl(raw: string): string | null {
-  const s = raw.trim();
-  if (!s) return null;
-  if (/^https?:\/\//i.test(s)) return s;
-  const d = digitsOnly(s);
-  if (!d) return null;
-  return `https://wa.me/${d}`;
+function iqTelUrl(nationalWithLeadingZero: string): string | null {
+  const n = normalizeNationalDigits(nationalWithLeadingZero);
+  if (!/^7\d{9}$/.test(n)) return null;
+  const cc = DEFAULT_DIAL_CODE.replace(/\D/g, "");
+  return `tel:+${cc}${n}`;
 }
 
 async function safeOpenUrl(url: string): Promise<boolean> {
@@ -44,7 +36,7 @@ type PlatformTile = {
 };
 
 export const SocialPlatformsScreen: React.FC = () => {
-  const { palette, supportWhatsappRaw, termsUrlRaw } = useSettings();
+  const { palette, supportWhatsappRaw } = useSettings();
   const styles = useMemo(() => makeSocialPlatformsStyles(palette), [palette]);
   const isDark = palette.scheme === "dark";
 
@@ -54,21 +46,33 @@ export const SocialPlatformsScreen: React.FC = () => {
       title: t.platforms.instagramTitle,
       subtitle: t.platforms.instagramSub,
       icon: "logo-instagram",
-      onPress: () => Toast.show({ type: "info", text1: t.platforms.comingSoon })
+      onPress: () => {
+        void safeOpenUrl(SHOOTA_SOCIAL_LINKS.instagram).then((ok) => {
+          if (!ok) Toast.show({ type: "error", text1: t.servicesHub.openLinkFailed });
+        });
+      }
     },
     {
       key: "facebook",
       title: t.platforms.facebookTitle,
       subtitle: t.platforms.facebookSub,
       icon: "logo-facebook",
-      onPress: () => Toast.show({ type: "info", text1: t.platforms.comingSoon })
+      onPress: () => {
+        void safeOpenUrl(SHOOTA_SOCIAL_LINKS.facebook).then((ok) => {
+          if (!ok) Toast.show({ type: "error", text1: t.servicesHub.openLinkFailed });
+        });
+      }
     },
     {
       key: "tiktok",
       title: t.platforms.tiktokTitle,
       subtitle: t.platforms.tiktokSub,
       icon: "logo-tiktok",
-      onPress: () => Toast.show({ type: "info", text1: t.platforms.comingSoon })
+      onPress: () => {
+        void safeOpenUrl(SHOOTA_SOCIAL_LINKS.tiktok).then((ok) => {
+          if (!ok) Toast.show({ type: "error", text1: t.servicesHub.openLinkFailed });
+        });
+      }
     },
     {
       key: "whatsapp",
@@ -76,7 +80,7 @@ export const SocialPlatformsScreen: React.FC = () => {
       subtitle: t.platforms.whatsappSub,
       icon: "logo-whatsapp",
       onPress: () => {
-        const url = buildWhatsappOpenUrl(supportWhatsappRaw);
+        const url = buildWhatsappOpenUrlFromRaw(supportWhatsappRaw);
         if (!url) {
           Toast.show({ type: "info", text1: t.servicesHub.linksNotSet });
           return;
@@ -92,12 +96,7 @@ export const SocialPlatformsScreen: React.FC = () => {
       subtitle: t.platforms.websiteSub,
       icon: "globe-outline",
       onPress: () => {
-        const url = normalizeHttpUrl(termsUrlRaw);
-        if (!url) {
-          Toast.show({ type: "info", text1: t.servicesHub.linksNotSet });
-          return;
-        }
-        void safeOpenUrl(url).then((ok) => {
+        void safeOpenUrl(SHOOTA_SOCIAL_LINKS.website).then((ok) => {
           if (!ok) Toast.show({ type: "error", text1: t.servicesHub.openLinkFailed });
         });
       }
@@ -107,7 +106,16 @@ export const SocialPlatformsScreen: React.FC = () => {
       title: t.platforms.phoneTitle,
       subtitle: t.platforms.phoneSub,
       icon: "call-outline",
-      onPress: () => Toast.show({ type: "info", text1: t.platforms.phoneHint })
+      onPress: () => {
+        const tel = iqTelUrl(SHOOTA_SOCIAL_LINKS.phoneNational);
+        if (!tel) {
+          Toast.show({ type: "error", text1: t.servicesHub.openLinkFailed });
+          return;
+        }
+        void safeOpenUrl(tel).then((ok) => {
+          if (!ok) Toast.show({ type: "error", text1: t.servicesHub.openLinkFailed });
+        });
+      }
     }
   ];
 

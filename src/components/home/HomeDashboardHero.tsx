@@ -6,14 +6,11 @@ import { BrandBusinessMark } from "../BrandBusinessMark";
 import {
   HOME_CARD_BG,
   HOME_CARD_BORDER,
-  HOME_GRADIENT_BOTTOM,
-  HOME_GRADIENT_MID,
-  HOME_GRADIENT_TOP,
   HOME_NEON,
   HOME_NEON_DIM
 } from "../../screens/homeDesignTokens";
 import { spacing } from "../../theme/tokens";
-import { rtl } from "../../utils/rtl";
+import { useSettings } from "../../providers/SettingsProvider";
 
 export type HomeTabKey = "today" | "past" | "upcoming";
 
@@ -52,23 +49,36 @@ export function HomeDashboardHero({
   onAddBooking,
   onFieldRequest
 }: Props) {
+  const { isRTL, palette } = useSettings();
+  const isDark = palette.scheme === "dark";
+  const chevronIcon = isRTL ? "chevron-back" : "chevron-forward";
+  // نفس ألوان هيدر الإشعارات الأخضر.
+  const heroGradientColors = isDark
+    ? (["rgba(14, 32, 20, 0.88)", "rgba(6, 14, 9, 0.94)"] as const)
+    : (["#0a5c36", "#008f4a", "#00C853"] as const);
+  const heroBorderColor = isDark ? "rgba(57, 255, 20, 0.42)" : "rgba(0, 200, 83, 0.38)";
+  const primaryTextColor = "#FFFFFF";
+  const secondaryTextColor = "rgba(255,255,255,0.9)";
+  const softCardBg = isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)";
+  const softCardBorder = isDark ? "rgba(255,255,255,0.14)" : "rgba(0,0,0,0.12)";
+
   return (
     <View style={styles.outer}>
       <LinearGradient
-        colors={[HOME_GRADIENT_TOP, HOME_GRADIENT_MID, HOME_GRADIENT_BOTTOM]}
+        colors={heroGradientColors}
         locations={[0, 0.45, 1]}
         start={{ x: 0.5, y: 0 }}
         end={{ x: 0.5, y: 1 }}
-        style={styles.gradient}
+        style={[styles.gradient, { borderColor: heroBorderColor }]}
       >
         <View style={[styles.inner, { paddingTop: paddingTop + spacing.sm }]}>
           <View style={styles.topRow} accessibilityRole="header">
             <BrandBusinessMark textAlign="left" style={styles.brandMark} />
             <View style={styles.greetCol}>
-              <Text style={styles.welcomeName} numberOfLines={2}>
+              <Text style={[styles.welcomeName, { color: primaryTextColor }]} numberOfLines={2}>
                 {welcomeNameLine}
               </Text>
-              <Text style={styles.welcomeSub} numberOfLines={2}>
+              <Text style={[styles.welcomeSub, { color: secondaryTextColor }]} numberOfLines={2}>
                 {welcomeSub}
               </Text>
             </View>
@@ -82,9 +92,9 @@ export function HomeDashboardHero({
                 accessibilityRole="button"
                 accessibilityLabel={addBookingLabel}
               >
-                <Text style={styles.addOutlineText}>{addBookingLabel}</Text>
+                <Text style={[styles.addOutlineText, { color: primaryTextColor }]}>{addBookingLabel}</Text>
               </Pressable>
-              <Text style={styles.addOutlineSub} numberOfLines={3}>
+              <Text style={[styles.addOutlineSub, { color: secondaryTextColor }]} numberOfLines={3}>
                 {addBookingSub}
               </Text>
             </View>
@@ -92,14 +102,18 @@ export function HomeDashboardHero({
 
           <Pressable
             onPress={onFieldRequest}
-            style={({ pressed }) => [styles.fieldCard, pressed && styles.pressed]}
+            style={({ pressed }) => [
+              styles.fieldCard,
+              { backgroundColor: softCardBg, borderColor: softCardBorder },
+              pressed && styles.pressed
+            ]}
             accessibilityRole="button"
           >
             <View style={styles.fieldTextWrap}>
-              <Text style={styles.fieldTitle}>{fieldRequestTitle}</Text>
-              <Text style={styles.fieldSub}>{fieldRequestSub}</Text>
+              <Text style={[styles.fieldTitle, { color: primaryTextColor }]}>{fieldRequestTitle}</Text>
+              <Text style={[styles.fieldSub, { color: secondaryTextColor }]}>{fieldRequestSub}</Text>
             </View>
-            <Ionicons name={rtl.chevronForward} size={22} color="rgba(255,255,255,0.7)" />
+            <Ionicons name={chevronIcon} size={22} color={secondaryTextColor} />
           </Pressable>
 
           <View style={styles.statsRow}>
@@ -108,18 +122,21 @@ export function HomeDashboardHero({
               value={counts.today}
               label={todayLabel}
               onPress={() => onTab("today")}
+              isDark={isDark}
             />
             <StatBox
               active={activeTab === "past"}
               value={counts.past}
               label={pastLabel}
               onPress={() => onTab("past")}
+              isDark={isDark}
             />
             <StatBox
               active={activeTab === "upcoming"}
               value={counts.upcoming}
               label={upcomingLabel}
               onPress={() => onTab("upcoming")}
+              isDark={isDark}
             />
           </View>
         </View>
@@ -132,26 +149,37 @@ function StatBox({
   active,
   value,
   label,
-  onPress
+  onPress,
+  isDark
 }: {
   active: boolean;
   value: number;
   label: string;
   onPress: () => void;
+  isDark: boolean;
 }) {
+  const baseBg = isDark ? "rgba(255,255,255,0.06)" : "rgba(0,0,0,0.05)";
+  const baseBorder = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.1)";
+  const activeBg = isDark ? "rgba(255,255,255,0.12)" : "rgba(0,0,0,0.1)";
+  const activeBorder = isDark ? HOME_NEON_DIM : "rgba(0,0,0,0.2)";
+  const numColor = isDark ? "#FFFFFF" : "#111111";
+  const labelColor = isDark ? "rgba(255,255,255,0.62)" : "rgba(0,0,0,0.55)";
+
   return (
     <Pressable
       onPress={onPress}
       style={({ pressed }) => [
         styles.statBox,
+        { backgroundColor: baseBg, borderColor: baseBorder },
         active && styles.statBoxActive,
+        active && { backgroundColor: activeBg, borderColor: activeBorder },
         pressed && styles.pressed
       ]}
       accessibilityRole="button"
       accessibilityState={{ selected: active }}
     >
-      <Text style={[styles.statNum, active && styles.statNumActive]}>{value}</Text>
-      <Text style={[styles.statLab, active && styles.statLabActive]}>{label}</Text>
+      <Text style={[styles.statNum, { color: numColor }, active && styles.statNumActive]}>{value}</Text>
+      <Text style={[styles.statLab, { color: labelColor }, active && styles.statLabActive]}>{label}</Text>
     </Pressable>
   );
 }
@@ -186,10 +214,10 @@ const styles = StyleSheet.create({
   },
   topRow: {
     flexDirection: "row",
+    direction: "ltr",
     justifyContent: "space-between",
     alignItems: "flex-start",
-    marginBottom: spacing.md,
-    writingDirection: "ltr"
+    marginBottom: spacing.md
   },
   brandMark: {
     marginTop: 2,
@@ -210,20 +238,23 @@ const styles = StyleSheet.create({
     letterSpacing: -0.2
   },
   welcomeSub: {
-    color: "#0F172A",
-    fontSize: 12,
+    color: "rgba(255, 255, 255, 0.9)",
+    fontSize: 13,
     fontWeight: "600",
     textAlign: "right",
     writingDirection: "rtl",
-    lineHeight: 18,
-    maxWidth: "100%"
+    lineHeight: 19,
+    maxWidth: "100%",
+    textShadowColor: "rgba(0, 0, 0, 0.45)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3
   },
   heroRow: {
     flexDirection: "row",
+    direction: "ltr",
     alignItems: "flex-start",
     justifyContent: "flex-end",
-    marginBottom: spacing.md,
-    writingDirection: "ltr"
+    marginBottom: spacing.md
   },
   ctaCol: {
     width: 148,
@@ -258,11 +289,14 @@ const styles = StyleSheet.create({
   },
   addOutlineSub: {
     marginTop: 8,
-    color: "#0F172A",
-    fontSize: 10,
+    color: "rgba(255, 255, 255, 0.88)",
+    fontSize: 11,
     fontWeight: "600",
     textAlign: "center",
-    lineHeight: 15
+    lineHeight: 16,
+    textShadowColor: "rgba(0, 0, 0, 0.45)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3
   },
   fieldCard: {
     flexDirection: "row-reverse",
@@ -289,7 +323,7 @@ const styles = StyleSheet.create({
     marginBottom: 4
   },
   fieldSub: {
-    color: "#0F172A",
+    color: "rgba(255, 255, 255, 0.82)",
     fontSize: 12,
     fontWeight: "600",
     textAlign: "right",
