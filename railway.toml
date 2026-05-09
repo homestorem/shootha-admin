@@ -1,0 +1,9 @@
+# Railway deploy config — OTP Express API (`server/index.js`).
+# Root Directory in Railway dashboard must be the repo root (where package.json lives),
+# not `server/`, so paths resolve correctly.
+
+[build]
+builder = "nixpacks"
+
+[deploy]
+startCommand = "node server/index.js"
