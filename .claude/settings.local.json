@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C \"e:\\\\مشاريع\\\\New folder\\\\admin\" diff --staged --stat)"
+    ]
+  }
+}
