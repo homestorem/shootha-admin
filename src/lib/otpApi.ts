@@ -191,7 +191,15 @@ async function requestOtp(path: "/otp/send" | "/otp/verify", body: Record<string
       try {
         payload = (await response.json()) as OtpServerResponse;
       } catch {
-        throw new OtpApiError("otp_bad_response", "استجابة غير صالحة من خادم التحقق");
+        let rawPreview = "";
+        try {
+          const cloned = response.clone();
+          rawPreview = (await cloned.text()).slice(0, 200);
+        } catch {
+          // ignore
+        }
+        const detail = rawPreview ? ` [${rawPreview}]` : "";
+        throw new OtpApiError("otp_bad_response", `استجابة غير صالحة من خادم التحقق${detail}`);
       }
 
       if (!response.ok || payload?.success === false) {

@@ -1,4 +1,6 @@
-require("dotenv").config();
+const path = require("path");
+// Resolve `.env` from repo root so startup works even if cwd is not the project root.
+require("dotenv").config({ path: path.join(__dirname, "..", ".env") });
 const crypto = require("crypto");
 const express = require("express");
 const cors = require("cors");
@@ -6,6 +8,18 @@ const rateLimit = require("express-rate-limit");
 const { OTPiqClient } = require("otpiq");
 
 const app = express();
+
+(function configureTrustProxy() {
+  const raw = String(process.env.TRUST_PROXY_HOPS ?? "").trim();
+  let hops = null;
+  if (raw !== "") {
+    const n = Number(raw);
+    hops = Number.isFinite(n) && n >= 0 ? n : 0;
+  } else {
+    hops = process.env.NODE_ENV === "production" ? 1 : 0;
+  }
+  if (hops > 0) app.set("trust proxy", hops);
+})();
 const PORT = Number(process.env.PORT || 4000);
 const OTP_IQ_API_KEY = (process.env.OTP_IQ_API_KEY || "").trim();
 const NOTIFICATION_API_KEY = (process.env.NOTIFICATION_API_KEY || "").trim();
