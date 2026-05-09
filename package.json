@@ -2,9 +2,12 @@
   "name": "shoota-business",
   "version": "1.0.0",
   "private": true,
+  "engines": {
+    "node": ">=20.19.0"
+  },
   "main": "node_modules/expo/AppEntry.js",
   "scripts": {
-    "start": "node --max-old-space-size=4096 ./node_modules/expo/bin/cli.js start",
+  "start": "node ./server/index.js",
     "start:clear": "node --max-old-space-size=4096 ./node_modules/expo/bin/cli.js start --clear",
     "otp:server": "node ./server/index.js",
     "android": "expo run:android",
