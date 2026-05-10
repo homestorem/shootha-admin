@@ -30,10 +30,10 @@ function assertOtpServerEnv() {
   const isProd = process.env.NODE_ENV === "production";
   if (isProd) {
     if (!OTP_IQ_API_KEY) {
-      throw new Error("[otp-server] Missing required env: OTP_IQ_API_KEY");
+      console.warn("[otp-server] OTP_IQ_API_KEY not set — OTP sending will fail at runtime.");
     }
     if (!NOTIFICATION_API_KEY) {
-      throw new Error("[otp-server] Missing required env: NOTIFICATION_API_KEY");
+      console.warn("[otp-server] NOTIFICATION_API_KEY not set — /send-notification endpoint will be disabled.");
     }
     if (!(process.env.CORS_ORIGINS || "").trim()) {
       console.warn("[otp-server] CORS_ORIGINS not set — browser requests will be blocked, mobile requests are unaffected.");
