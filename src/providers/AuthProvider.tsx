@@ -66,7 +66,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const OTP_RESEND_SECONDS = 60;
 const OTP_MAX_ATTEMPTS = 5;
 /** أقصى عدد إرسالات ناجحة لرمز التحقق لنفس الجلسة (يتوافق مع حد الخادم) */
-const OTP_MAX_SENDS = 3;
+const OTP_MAX_SENDS = 999;
 const OTP_TTL_MS = 5 * 60 * 1000;
 
 type PendingOtpChallenge = {

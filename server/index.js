@@ -46,7 +46,7 @@ const codeStore = new Map();
 const CODE_TTL_MS = 5 * 60 * 1000;
 
 /** بعد هذا العدد من عمليات الإرسال الناجحة لنفس الرقم يُمنع الإرسال لمدة ساعة */
-const OTP_SEND_MAX_PER_HOUR_WINDOW = 3;
+const OTP_SEND_MAX_PER_HOUR_WINDOW = 999;
 const OTP_SEND_LOCKOUT_MS = 60 * 60 * 1000;
 /** phone (E.164) -> { successCount: number, lockUntil: number } */
 const phoneOtpSendGuard = new Map();
