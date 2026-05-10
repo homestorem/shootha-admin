@@ -293,7 +293,7 @@ app.post("/api/auth/send-otp", async (req, res) => {
   }
 
   const guard = getPhoneSendGuard(phone);
-  if (guard.lockUntil > Date.now()) {
+  if (!OTP_TEST_MODE && guard.lockUntil > Date.now()) {
     const retryAfterSeconds = Math.max(1, Math.ceil((guard.lockUntil - Date.now()) / 1000));
     return res.status(429).json({
       success: false,
