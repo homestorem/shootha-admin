@@ -254,7 +254,7 @@ function normalizeProviderErrorMessage(error, fallback) {
 }
 
 function generateOtpCode() {
-  return String(crypto.randomInt(100000, 1000000));
+  return String(crypto.randomInt(1000, 10000));
 }
 
 async function sendViaProvider(phone) {
@@ -266,7 +266,7 @@ async function sendViaProvider(phone) {
     const payload = await otpClient.sendSMS({
       phoneNumber: phone.replace("+", ""),
       smsType: "verification",
-      digitCount: 6,
+      digitCount: 4,
       verificationCode: generatedCode,
       provider: "auto"
     });

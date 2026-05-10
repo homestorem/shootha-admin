@@ -105,7 +105,7 @@ export const OtpVerifyScreen: React.FC<Props> = ({ route, navigation }) => {
   const otpRef = useRef<TextInput>(null);
 
   const isRegister = flow === "register";
-  const otpDigits = 6;
+  const otpDigits = 4;
   const otpComplete = code.length === otpDigits;
 
   useEffect(() => {
