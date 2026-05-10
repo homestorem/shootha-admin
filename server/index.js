@@ -228,8 +228,9 @@ const otpLimiter = rateLimit({
   max: 999,
   standardHeaders: true,
   legacyHeaders: false,
-  statusCode: 429,
-  message: { success: false, code: "rate_limited", message: "Too many attempts. Please try again later." }
+  handler: (req, res) => {
+    res.status(429).json({ success: false, code: "rate_limited", message: "Too many attempts. Please try again later." });
+  }
 });
 
 app.use("/api/auth", verifyOtpAppCheckToken);
@@ -287,7 +288,7 @@ app.post("/api/auth/send-otp", async (req, res) => {
   if (!isValidE164(phone)) {
     return res.status(400).json({ success: false, code: "invalid_phone_format", message: "Invalid phone format." });
   }
-  if (!OTP_IQ_API_KEY) {
+  if (!OTP_TEST_MODE && !OTP_IQ_API_KEY) {
     return res.status(500).json({ success: false, code: "missing_api_key", message: "OTP_IQ_API_KEY is missing." });
   }
 
