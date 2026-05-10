@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(git -C \"e:\\\\مشاريع\\\\New folder\\\\admin\" diff --staged --stat)"
+      "Bash(git -C \"e:\\\\مشاريع\\\\New folder\\\\admin\" diff --staged --stat)",
+      "PowerShell(Get-ChildItem -Path \"e:\\\\مشاريع\\\\New folder\\\\admin\" -Recurse -Force -ErrorAction SilentlyContinue | Where-Object {$_.FullName -notmatch '\\(node_modules|\\\\.git|android|ios\\)'} | Select-Object -ExpandProperty FullName | Sort-Object)"
     ]
   }
 }

@@ -32,11 +32,11 @@ function assertOtpServerEnv() {
     if (!OTP_IQ_API_KEY) {
       throw new Error("[otp-server] Missing required env: OTP_IQ_API_KEY");
     }
-    if (!(process.env.CORS_ORIGINS || "").trim()) {
-      throw new Error("[otp-server] Missing required env: CORS_ORIGINS (comma-separated browser origins)");
-    }
     if (!NOTIFICATION_API_KEY) {
       throw new Error("[otp-server] Missing required env: NOTIFICATION_API_KEY");
+    }
+    if (!(process.env.CORS_ORIGINS || "").trim()) {
+      console.warn("[otp-server] CORS_ORIGINS not set — browser requests will be blocked, mobile requests are unaffected.");
     }
   }
 }

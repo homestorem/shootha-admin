@@ -177,6 +177,7 @@ async function requestOtp(path: "/otp/send" | "/otp/verify", body: Record<string
 
   for (const base of bases) {
     try {
+      console.log("FINAL OTP URL =", `${base}${path}`);
       const response = await fetchOtpResilient(
         `${base}${path}`,
         {
