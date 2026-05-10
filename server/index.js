@@ -259,10 +259,10 @@ function generateOtpCode() {
 }
 
 async function sendViaProvider(phone) {
-  const generatedCode = generateOtpCode();
   if (OTP_TEST_MODE) {
-    console.log(`[otp-server] TEST MODE — code for ${phone}: ${generatedCode}`);
-    return { success: true, requestId: `test-${Date.now()}`, code: generatedCode };
+    const testCode = generateOtpCode();
+    console.log(`[otp-server] TEST MODE — code for ${phone}: ${testCode}`);
+    return { success: true, code: testCode };
   }
   if (!otpClient) {
     return { success: false, code: "missing_api_key", message: "OTP_IQ_API_KEY is missing." };
@@ -272,11 +272,11 @@ async function sendViaProvider(phone) {
       phoneNumber: phone.replace("+", ""),
       smsType: "verification",
       digitCount: 4,
-      verificationCode: generatedCode,
       provider: "auto"
     });
-    const requestId = payload?.smsId || null;
-    return { success: true, requestId, code: generatedCode, payload };
+    // Use verificationCode from SDK response — this is the actual code OTPiq sent
+    const actualCode = payload?.verificationCode || null;
+    return { success: true, code: actualCode, payload };
   } catch (error) {
     const normalized = normalizeProviderErrorMessage(error, "OTP provider request failed");
     return { success: false, ...normalized };
