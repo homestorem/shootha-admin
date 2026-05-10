@@ -54,7 +54,7 @@ const phoneOtpSendGuard = new Map();
 /** phone (E.164) -> timestamps (ms) of POST /otp/* within sliding 1 min window */
 const phoneOtpRouteHits = new Map();
 const PHONE_OTP_ROUTE_WINDOW_MS = 60 * 1000;
-const PHONE_OTP_ROUTE_MAX_PER_WINDOW = 5;
+const PHONE_OTP_ROUTE_MAX_PER_WINDOW = 999;
 
 function getFirebaseAdminDb() {
   const json = String(process.env.FIREBASE_SERVICE_ACCOUNT_JSON || "").trim();
@@ -225,7 +225,7 @@ function verifyNotificationApiKey(req, res, next) {
 
 const otpLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 5,
+  max: 999,
   standardHeaders: true,
   legacyHeaders: false,
   statusCode: 429,
