@@ -145,8 +145,13 @@ async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = OTP_
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    return await fetch(url, { ...init, signal: controller.signal });
+    const response = await fetch(url, { ...init, signal: controller.signal });
+    if (response.status === 502 || response.status === 503 || response.status === 504) {
+      throw new OtpApiError("otp_server_unreachable", `الخادم غير متاح مؤقتاً (${response.status}) — ${getReadableUrl(url)}`);
+    }
+    return response;
   } catch (e: unknown) {
+    if (e instanceof OtpApiError) throw e;
     if ((e as { name?: string })?.name === "AbortError") {
       throw new OtpApiError("otp_timeout", `انتهت مهلة الاتصال، حاول مرة أخرى (${getReadableUrl(url)})`);
     }
@@ -173,7 +178,7 @@ async function requestOtp(path: "/api/auth/send-otp" | "/api/auth/verify-otp", b
   const bases = getOtpApiUrls();
   let lastNetworkError: OtpApiError | null = null;
   const headers = await buildOtpFetchHeaders();
-  const timeoutMs = path === "/otp/send" ? OTP_SEND_TIMEOUT_MS : OTP_TIMEOUT_MS;
+  const timeoutMs = path === "/api/auth/send-otp" ? OTP_SEND_TIMEOUT_MS : OTP_TIMEOUT_MS;
 
   for (const base of bases) {
     try {

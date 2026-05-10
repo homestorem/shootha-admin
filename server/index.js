@@ -449,6 +449,16 @@ app.get("/health", (_req, res) => {
   res.json({ ok: true });
 });
 
+app.use((req, res) => {
+  res.status(404).json({ success: false, code: "not_found", message: `Cannot ${req.method} ${req.path}` });
+});
+
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, _next) => {
+  console.error("[otp-server] unhandled error:", err?.message || err);
+  res.status(500).json({ success: false, code: "server_error", message: err?.message || "Internal server error" });
+});
+
 const server = app.listen(PORT, "0.0.0.0", () => {
   console.log(`[otp-server] running on http://0.0.0.0:${PORT}`);
 });
