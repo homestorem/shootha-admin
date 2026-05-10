@@ -244,9 +244,20 @@ export async function sendOtpRequest(phone: string): Promise<{ requestId?: strin
 export async function verifyOtpRequest(
   phone: string,
   code: string,
-  requestId?: string
+  _requestId?: string
 ): Promise<{ verified: boolean; token?: string; user?: Record<string, unknown> }> {
-  const payload = await requestOtp("/api/auth/verify-otp", { phone, code, requestId });
+  const base = (process.env.EXPO_PUBLIC_OTP_API_URL || process.env.EXPO_PUBLIC_API_URL || "").trim().replace(/\/+$/, "");
+  const url = `${base}/api/auth/verify-otp`;
+  console.log("VERIFY OTP URL =", url, { phone, code });
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ phone, code })
+  });
+  const payload = await response.json() as OtpServerResponse;
+  if (!response.ok || payload?.success === false) {
+    throw new OtpApiError(payload?.code || "server_error", payload?.message || `verify failed (${response.status})`);
+  }
   return {
     verified: payload?.verified === true,
     token: payload?.token,
