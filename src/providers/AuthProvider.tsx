@@ -63,10 +63,10 @@ type AuthContextType = {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const OTP_RESEND_SECONDS = 0;
-const OTP_MAX_ATTEMPTS = 999;
+const OTP_RESEND_SECONDS = 60;
+const OTP_MAX_ATTEMPTS = 5;
 /** أقصى عدد إرسالات ناجحة لرمز التحقق لنفس الجلسة (يتوافق مع حد الخادم) */
-const OTP_MAX_SENDS = 999;
+const OTP_MAX_SENDS = 3;
 const OTP_TTL_MS = 5 * 60 * 1000;
 
 type PendingOtpChallenge = {
@@ -246,7 +246,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           return { error: "rate_limited" };
         }
         if (prev && prev.phone === e164 && prev.sendCount >= OTP_MAX_SENDS) {
-          return { error: translate(language, "auth.otpSendLocked", { minutes: 60 }) };
+          return { error: translate(language, "auth.otpSendLocked", { hours: 1 }) };
         }
         const sent = await sendOtpRequest(e164);
         const priorSends = prev?.phone === e164 ? prev.sendCount : 0;
@@ -264,8 +264,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         loginOtpRef.current = null;
         if (e instanceof OtpApiError && e.code === "otp_send_locked") {
           const sec = e.retryAfterSeconds ?? 3600;
-          const minutes = Math.max(1, Math.ceil(sec / 60));
-          return { error: translate(language, "auth.otpSendLocked", { minutes }) };
+          const hours = Math.max(1, Math.ceil(sec / 3600));
+          return { error: translate(language, "auth.otpSendLocked", { hours }) };
         }
         const msg = e instanceof OtpApiError ? e.message : e instanceof Error ? e.message : String(e);
         return { error: msg || "otp_iq_send_failed" };
@@ -302,7 +302,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         return { error: "rate_limited" };
       }
       if (prev && prev.phone === e164 && prev.sendCount >= OTP_MAX_SENDS) {
-        return { error: translate(language, "auth.otpSendLocked", { minutes: 60 }) };
+        return { error: translate(language, "auth.otpSendLocked", { hours: 1 }) };
       }
       const sent = await sendOtpRequest(e164);
       const priorSends = prev?.phone === e164 ? prev.sendCount : 0;
@@ -319,8 +319,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       deleteOtpRef.current = null;
       if (e instanceof OtpApiError && e.code === "otp_send_locked") {
         const sec = e.retryAfterSeconds ?? 3600;
-        const minutes = Math.max(1, Math.ceil(sec / 60));
-        return { error: translate(language, "auth.otpSendLocked", { minutes }) };
+        const hours = Math.max(1, Math.ceil(sec / 3600));
+        return { error: translate(language, "auth.otpSendLocked", { hours }) };
       }
       const msg = e instanceof OtpApiError ? e.message : e instanceof Error ? e.message : String(e);
       return { error: msg || "otp_iq_send_failed" };

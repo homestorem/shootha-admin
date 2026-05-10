@@ -101,7 +101,7 @@ export const OtpVerifyScreen: React.FC<Props> = ({ route, navigation }) => {
   const [code, setCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [focused, setFocused] = useState(false);
-  const [resendIn, setResendIn] = useState(0);
+  const [resendIn, setResendIn] = useState(60);
   const otpRef = useRef<TextInput>(null);
 
   const isRegister = flow === "register";
@@ -163,7 +163,7 @@ export const OtpVerifyScreen: React.FC<Props> = ({ route, navigation }) => {
       Toast.show({ type: "error", text1: msg });
       return;
     }
-    setResendIn(0);
+    setResendIn(60);
     setCode("");
     Toast.show({ type: "success", text1: tr("auth.otpSentSuccess") });
   };

@@ -46,16 +46,15 @@ assertOtpServerEnv();
 const codeStore = new Map();
 const CODE_TTL_MS = 5 * 60 * 1000;
 
-/** بعد هذا العدد من عمليات الإرسال الناجحة لنفس الرقم يُمنع الإرسال لمدة ساعة */
-const OTP_SEND_MAX_PER_HOUR_WINDOW = 999;
-const OTP_SEND_LOCKOUT_MS = 60 * 60 * 1000;
-/** phone (E.164) -> { successCount: number, lockUntil: number } */
-const phoneOtpSendGuard = new Map();
+/** IP -> { successCount: number, lockUntil: number } */
+const DEVICE_OTP_MAX_SENDS = 3;
+const DEVICE_OTP_LOCKOUT_MS = 60 * 60 * 1000;
+const deviceOtpSendGuard = new Map();
 
-/** phone (E.164) -> timestamps (ms) of POST /otp/* within sliding 1 min window */
+/** phone (E.164) -> timestamps (ms) of POST /api/auth/* within sliding 1 min window */
 const phoneOtpRouteHits = new Map();
 const PHONE_OTP_ROUTE_WINDOW_MS = 60 * 1000;
-const PHONE_OTP_ROUTE_MAX_PER_WINDOW = 999;
+const PHONE_OTP_ROUTE_MAX_PER_WINDOW = 10;
 
 function getFirebaseAdminDb() {
   const json = String(process.env.FIREBASE_SERVICE_ACCOUNT_JSON || "").trim();
@@ -73,11 +72,11 @@ function isExpoPushToken(value) {
   return /^ExponentPushToken\[[^\]]+\]$/.test(String(value || "").trim());
 }
 
-function getPhoneSendGuard(phone) {
-  let g = phoneOtpSendGuard.get(phone);
+function getDeviceSendGuard(ip) {
+  let g = deviceOtpSendGuard.get(ip);
   if (!g) {
     g = { successCount: 0, lockUntil: 0 };
-    phoneOtpSendGuard.set(phone, g);
+    deviceOtpSendGuard.set(ip, g);
   }
   if (g.lockUntil > 0 && Date.now() >= g.lockUntil) {
     g.successCount = 0;
@@ -292,13 +291,14 @@ app.post("/api/auth/send-otp", async (req, res) => {
     return res.status(500).json({ success: false, code: "missing_api_key", message: "OTP_IQ_API_KEY is missing." });
   }
 
-  const guard = getPhoneSendGuard(phone);
+  const clientIp = req.ip || "unknown";
+  const guard = getDeviceSendGuard(clientIp);
   if (!OTP_TEST_MODE && guard.lockUntil > Date.now()) {
     const retryAfterSeconds = Math.max(1, Math.ceil((guard.lockUntil - Date.now()) / 1000));
     return res.status(429).json({
       success: false,
       code: "otp_send_locked",
-      message: "OTP send limit reached. Try again later.",
+      message: "Device blocked. Try again later.",
       retryAfterSeconds
     });
   }
@@ -310,10 +310,10 @@ app.post("/api/auth/send-otp", async (req, res) => {
     }
 
     guard.successCount += 1;
-    if (guard.successCount >= OTP_SEND_MAX_PER_HOUR_WINDOW) {
-      guard.lockUntil = Date.now() + OTP_SEND_LOCKOUT_MS;
+    if (guard.successCount >= DEVICE_OTP_MAX_SENDS) {
+      guard.lockUntil = Date.now() + DEVICE_OTP_LOCKOUT_MS;
     }
-    phoneOtpSendGuard.set(phone, guard);
+    deviceOtpSendGuard.set(clientIp, guard);
 
     const requestId = provider.requestId || phone;
     if (provider?.code) {

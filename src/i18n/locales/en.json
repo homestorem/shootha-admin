@@ -71,7 +71,7 @@
     "otpSentSuccess": "Code sent to your phone",
     "otpSendFailed": "Could not send code. Try again.",
     "resendAfterOneMinute": "You can retry after 60 seconds",
-    "otpSendLocked": "This number reached the send limit (3 codes). Try again in {{minutes}} minutes.",
+    "otpSendLocked": "Send limit reached (3 codes). Try again in {{hours}} hour(s).",
     "otpWrongCode": "Invalid code",
     "otpExpired": "Code has expired",
     "otpRetryLimit": "Too many attempts. Resend the code.",
