@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: shootha-otp-server
+    env: node
+    plan: free
+    startCommand: node server/index.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        generateValue: false
+      - key: OTP_IQ_API_KEY
+        sync: false
+      - key: NOTIFICATION_API_KEY
+        sync: false
+      - key: CORS_ORIGINS
+        value: ""
+      - key: TRUST_PROXY_HOPS
+        value: "1"

@@ -80,7 +80,7 @@ type OtpServerResponse = {
 };
 
 function getOtpApiUrl(): string {
-  const base = (process.env.EXPO_PUBLIC_OTP_API_URL || "").trim();
+  const base = (process.env.EXPO_PUBLIC_OTP_API_URL || process.env.EXPO_PUBLIC_API_URL || "").trim();
   if (!base) {
     throw new OtpApiError("otp_api_url_missing", "OTP API URL is missing.");
   }
