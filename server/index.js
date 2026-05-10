@@ -232,9 +232,9 @@ const otpLimiter = rateLimit({
   message: { success: false, code: "rate_limited", message: "Too many attempts. Please try again later." }
 });
 
-app.use("/otp", verifyOtpAppCheckToken);
-app.use("/otp", otpLimiter);
-app.use("/otp", otpPhoneRouteRateLimit);
+app.use("/api/auth", verifyOtpAppCheckToken);
+app.use("/api/auth", otpLimiter);
+app.use("/api/auth", otpPhoneRouteRateLimit);
 
 function isValidE164(phone) {
   return /^\+\d{8,15}$/.test(String(phone || "").trim());
@@ -279,7 +279,7 @@ async function sendViaProvider(phone) {
   }
 }
 
-app.post("/otp/send", async (req, res) => {
+app.post("/api/auth/send-otp", async (req, res) => {
   const phone = String(req.body?.phone || "").trim();
   if (!isValidE164(phone)) {
     return res.status(400).json({ success: false, code: "invalid_phone_format", message: "Invalid phone format." });
@@ -330,7 +330,7 @@ app.post("/otp/send", async (req, res) => {
   }
 });
 
-app.post("/otp/verify", async (req, res) => {
+app.post("/api/auth/verify-otp", async (req, res) => {
   const phone = String(req.body?.phone || "").trim();
   const code = String(req.body?.code || "").trim();
   if (!isValidE164(phone)) {

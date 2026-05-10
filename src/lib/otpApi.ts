@@ -169,7 +169,7 @@ async function buildOtpFetchHeaders(): Promise<Record<string, string>> {
   return headers;
 }
 
-async function requestOtp(path: "/otp/send" | "/otp/verify", body: Record<string, unknown>): Promise<OtpServerResponse> {
+async function requestOtp(path: "/api/auth/send-otp" | "/api/auth/verify-otp", body: Record<string, unknown>): Promise<OtpServerResponse> {
   const bases = getOtpApiUrls();
   let lastNetworkError: OtpApiError | null = null;
   const headers = await buildOtpFetchHeaders();
@@ -232,7 +232,7 @@ async function requestOtp(path: "/otp/send" | "/otp/verify", body: Record<string
 }
 
 export async function sendOtpRequest(phone: string): Promise<{ requestId?: string }> {
-  const payload = await requestOtp("/otp/send", { phone });
+  const payload = await requestOtp("/api/auth/send-otp", { phone });
   return { requestId: payload?.requestId };
 }
 
@@ -241,7 +241,7 @@ export async function verifyOtpRequest(
   code: string,
   requestId?: string
 ): Promise<{ verified: boolean; token?: string; user?: Record<string, unknown> }> {
-  const payload = await requestOtp("/otp/verify", { phone, code, requestId });
+  const payload = await requestOtp("/api/auth/verify-otp", { phone, code, requestId });
   return {
     verified: payload?.verified === true,
     token: payload?.token,

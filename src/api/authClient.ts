@@ -32,7 +32,7 @@ function mapAxiosError(e: unknown): string {
 export async function requestSendOtp(args: { phone: string }): Promise<{ ok: true } | { ok: false; error: string }> {
   if (!isBackendSyncEnabled) return { ok: true };
   try {
-    await axios.post(`${apiBase()}/otp/send`, args, {
+    await axios.post(`${apiBase()}/api/auth/send-otp`, args, {
       timeout: 30000,
       headers: await withAppCheckHeaders()
     });
@@ -60,7 +60,7 @@ export async function verifyOtpWithBackend(args: {
     const { data } = await axios.post<{
       verified: boolean;
       token?: string;
-    }>(`${apiBase()}/otp/verify`, args, {
+    }>(`${apiBase()}/api/auth/verify-otp`, args, {
       timeout: 20000,
       headers: await withAppCheckHeaders()
     });
