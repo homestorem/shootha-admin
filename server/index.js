@@ -42,6 +42,7 @@ function assertOtpServerEnv() {
   }
 }
 assertOtpServerEnv();
+console.log(`[otp-server] OTP_TEST_MODE=${OTP_TEST_MODE ? "ON ✓" : "OFF"}`);
 
 const codeStore = new Map();
 const CODE_TTL_MS = 5 * 60 * 1000;
@@ -244,14 +245,24 @@ function isValidE164(phone) {
 function normalizeProviderErrorMessage(error, fallback) {
   const msg = error?.message || fallback || "OTP provider error";
   const lower = String(msg).toLowerCase();
+
+  // Extract wait seconds from OTPiq Arabic rate-limit message e.g. "انتظر 2906 ثانية"
+  const waitMatch = msg.match(/(\d+)\s*ثانية/) || msg.match(/(\d+)\s*minutes?/i);
+  const retryAfterSeconds = waitMatch
+    ? lower.includes("minute") ? Number(waitMatch[1]) * 60 : Number(waitMatch[1])
+    : error?.waitMinutes ? error.waitMinutes * 60 : undefined;
+
   const code = lower.includes("trial mode")
     ? "trial_mode"
-    : lower.includes("expired")
-      ? "code_expired"
-      : lower.includes("invalid")
-        ? "invalid_code"
-        : "provider_error";
-  return { code, message: String(msg) };
+    : lower.includes("rate limit") || waitMatch
+      ? "otp_send_locked"
+      : lower.includes("expired")
+        ? "code_expired"
+        : lower.includes("invalid")
+          ? "invalid_code"
+          : "provider_error";
+
+  return { code, message: String(msg), retryAfterSeconds };
 }
 
 function generateOtpCode() {
@@ -307,7 +318,13 @@ app.post("/api/auth/send-otp", async (req, res) => {
   try {
     const provider = await sendViaProvider(phone);
     if (!provider?.success) {
-      return res.status(400).json({ success: false, code: provider?.code, message: provider?.message });
+      const status = provider?.code === "otp_send_locked" ? 429 : 400;
+      return res.status(status).json({
+        success: false,
+        code: provider?.code,
+        message: provider?.message,
+        ...(provider?.retryAfterSeconds ? { retryAfterSeconds: provider.retryAfterSeconds } : {})
+      });
     }
 
     guard.successCount += 1;
