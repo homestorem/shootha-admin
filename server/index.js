@@ -316,16 +316,15 @@ app.post("/api/auth/send-otp", async (req, res) => {
     }
     deviceOtpSendGuard.set(clientIp, guard);
 
-    const requestId = provider.requestId || phone;
     if (provider?.code) {
-      codeStore.set(requestId, {
+      codeStore.set(phone, {
         phone,
         code: String(provider.code),
         expiresAt: Date.now() + CODE_TTL_MS
       });
     }
 
-    return res.json({ success: true, requestId, message: "OTP sent successfully." });
+    return res.json({ success: true, requestId: phone, message: "OTP sent successfully." });
   } catch (error) {
     return res.status(500).json({
       success: false,
