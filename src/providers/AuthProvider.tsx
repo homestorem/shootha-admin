@@ -329,7 +329,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const confirmDeleteAccountOtp = useCallback(async (token: string): Promise<{ error?: string }> => {
     const trimmed = token.trim().replace(/\s/g, "");
-    if (trimmed.length < 6) {
+    if (trimmed.length < 4) {
       return { error: "invalid_code" };
     }
     const pending = deleteOtpRef.current;
@@ -375,7 +375,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const verifyPhoneOtp = useCallback(async (_phone: string, token: string): Promise<{ error?: string }> => {
     const trimmed = token.trim().replace(/\s/g, "");
-    if (trimmed.length < 6) {
+    if (trimmed.length < 4) {
       return { error: "invalid_code" };
     }
     const pending = loginOtpRef.current;
