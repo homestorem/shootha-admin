@@ -104,41 +104,7 @@ function getOtpApiUrl(): string {
 }
 
 function getOtpApiUrls(): string[] {
-  const primary = getOtpApiUrl();
-  const urls = [primary];
-
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const Constants = require("expo-constants")?.default as
-      | { expoConfig?: { hostUri?: string }; manifest2?: { extra?: { expoGo?: { debuggerHost?: string } } } }
-      | undefined;
-
-    const hostUri =
-      Constants?.expoConfig?.hostUri ??
-      Constants?.manifest2?.extra?.expoGo?.debuggerHost ??
-      "";
-    const host = String(hostUri || "")
-      .split(":")[0]
-      .trim();
-    if (!host) return urls;
-
-    let port = "5000";
-    try {
-      const parsed = new URL(primary);
-      if (parsed.port) port = parsed.port;
-    } catch {
-      // keep default port
-    }
-
-    const fromExpo = `http://${host}:${port}`;
-    if (!urls.some((u) => u.toLowerCase() === fromExpo.toLowerCase())) {
-      urls.push(fromExpo);
-    }
-  } catch {
-    // ignore optional constants parsing issues
-  }
-
-  return urls;
+  return [getOtpApiUrl()];
 }
 
 async function fetchWithTimeout(url: string, init: RequestInit, timeoutMs = OTP_TIMEOUT_MS): Promise<Response> {
