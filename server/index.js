@@ -23,6 +23,7 @@ const app = express();
 const PORT = Number(process.env.PORT || 4000);
 const OTP_IQ_API_KEY = (process.env.OTP_IQ_API_KEY || "").trim();
 const NOTIFICATION_API_KEY = (process.env.NOTIFICATION_API_KEY || "").trim();
+const OTP_TEST_MODE = process.env.OTP_TEST_MODE === "1";
 const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
 const otpClient = OTP_IQ_API_KEY ? new OTPiqClient({ apiKey: OTP_IQ_API_KEY }) : null;
 
@@ -258,11 +259,15 @@ function generateOtpCode() {
 }
 
 async function sendViaProvider(phone) {
+  const generatedCode = generateOtpCode();
+  if (OTP_TEST_MODE) {
+    console.log(`[otp-server] TEST MODE — code for ${phone}: ${generatedCode}`);
+    return { success: true, requestId: `test-${Date.now()}`, code: generatedCode };
+  }
   if (!otpClient) {
     return { success: false, code: "missing_api_key", message: "OTP_IQ_API_KEY is missing." };
   }
   try {
-    const generatedCode = generateOtpCode();
     const payload = await otpClient.sendSMS({
       phoneNumber: phone.replace("+", ""),
       smsType: "verification",
@@ -271,8 +276,7 @@ async function sendViaProvider(phone) {
       provider: "auto"
     });
     const requestId = payload?.smsId || null;
-    const code = generatedCode;
-    return { success: true, requestId, code, payload };
+    return { success: true, requestId, code: generatedCode, payload };
   } catch (error) {
     const normalized = normalizeProviderErrorMessage(error, "OTP provider request failed");
     return { success: false, ...normalized };
