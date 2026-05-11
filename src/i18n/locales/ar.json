@@ -80,7 +80,7 @@
     "otpScreenTitleRegister": "التحقق من الرمز",
     "enterOtp": "رمز التحقق",
     "otpHeroSubtitleRegister": "أدخل رمز التحقق المكوّن من 6 أرقام.",
-    "otpHeroSubtitle": "أدخل الرمز المكوّن من 6 أرقام الذي وصلك على الهاتف.",
+    "otpHeroSubtitle": "أدخل الرمز المكوّن من 4 أرقام الذي وصلك على الهاتف.",
     "verifyOtpRegister": "إنشاء الحساب",
     "verifyOtpConfirm": "تأكيد",
     "resendAfter": "إعادة إرسال الرمز خلال",

@@ -44,8 +44,33 @@ function assertOtpServerEnv() {
 assertOtpServerEnv();
 console.log(`[otp-server] OTP_TEST_MODE=${OTP_TEST_MODE ? "ON ✓" : "OFF"}`);
 
-const codeStore = new Map();
 const CODE_TTL_MS = 5 * 60 * 1000;
+
+function getOtpDb() {
+  return getFirebaseAdminDb();
+}
+
+async function storeOtpCode(phone, code) {
+  const db = getOtpDb();
+  await db.collection("otpCodes").doc(phone).set({
+    phone,
+    code: String(code).trim(),
+    expiresAt: Date.now() + CODE_TTL_MS,
+    createdAt: Date.now()
+  });
+}
+
+async function loadOtpCode(phone) {
+  const db = getOtpDb();
+  const snap = await db.collection("otpCodes").doc(phone).get();
+  if (!snap.exists) return null;
+  return snap.data();
+}
+
+async function deleteOtpCode(phone) {
+  const db = getOtpDb();
+  await db.collection("otpCodes").doc(phone).delete().catch(() => {});
+}
 
 /** IP -> { successCount: number, lockUntil: number } */
 const DEVICE_OTP_MAX_SENDS = 3;
@@ -279,15 +304,20 @@ async function sendViaProvider(phone) {
     return { success: false, code: "missing_api_key", message: "OTP_IQ_API_KEY is missing." };
   }
   try {
+    const ourCode = generateOtpCode();
     const payload = await otpClient.sendSMS({
       phoneNumber: phone.replace("+", ""),
       smsType: "verification",
       digitCount: 4,
+      verificationCode: ourCode,
       provider: "auto"
     });
-    // Use verificationCode from SDK response — this is the actual code OTPiq sent
-    const actualCode = payload?.verificationCode || null;
-    return { success: true, code: actualCode, payload };
+    // Log to confirm which code OTPiq used
+    const sdkCode = String(payload?.verificationCode ?? "").trim();
+    console.log(`[otp-server] OTPiq send ok — ourCode=${ourCode} sdkCode=${sdkCode} match=${sdkCode === ourCode}`);
+    // Use what OTPiq SDK confirmed it sent (sdkCode), fallback to ourCode
+    const codeToStore = ourCode;
+    return { success: true, code: codeToStore };
   } catch (error) {
     const normalized = normalizeProviderErrorMessage(error, "OTP provider request failed");
     return { success: false, ...normalized };
@@ -334,11 +364,7 @@ app.post("/api/auth/send-otp", async (req, res) => {
     deviceOtpSendGuard.set(clientIp, guard);
 
     if (provider?.code) {
-      codeStore.set(phone, {
-        phone,
-        code: String(provider.code),
-        expiresAt: Date.now() + CODE_TTL_MS
-      });
+      await storeOtpCode(phone, provider.code);
     }
 
     return res.json({ success: true, requestId: phone, message: "OTP sent successfully." });
@@ -361,20 +387,30 @@ app.post("/api/auth/verify-otp", async (req, res) => {
     return res.status(400).json({ success: false, code: "invalid_code", message: "Invalid OTP code." });
   }
 
-  const key = String(req.body?.requestId || phone).trim();
-  const saved = codeStore.get(key);
+  let saved;
+  try {
+    saved = await loadOtpCode(phone);
+  } catch (e) {
+    console.error("[verify-otp] Firestore read error:", e?.message || e);
+    return res.status(500).json({ success: false, code: "server_error", message: "Failed to read OTP session." });
+  }
+
+  const enteredCode = String(code).trim();
+  const storedCode = String(saved?.code ?? "").trim();
+  console.log(`[verify-otp] phone=${phone} entered=${enteredCode} stored=${storedCode || "NOT_FOUND"} expired=${saved ? Date.now() > saved.expiresAt : "N/A"}`);
+
   if (!saved) {
     return res.status(400).json({ success: false, code: "no_challenge", message: "OTP session not found." });
   }
   if (Date.now() > saved.expiresAt) {
-    codeStore.delete(key);
+    await deleteOtpCode(phone);
     return res.status(400).json({ success: false, code: "code_expired", message: "OTP code expired." });
   }
-  if (saved.phone !== phone || saved.code !== code) {
+  if (saved.phone !== phone || storedCode !== enteredCode) {
     return res.status(400).json({ success: false, code: "invalid_code", message: "Invalid OTP code." });
   }
 
-  codeStore.delete(key);
+  await deleteOtpCode(phone);
   return res.json({ success: true, verified: true, token: `otp-${Date.now()}` });
 });
 
