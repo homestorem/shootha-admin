@@ -80,7 +80,7 @@ type OtpServerResponse = {
 };
 
 function getOtpApiUrl(): string {
-  const base = (process.env.EXPO_PUBLIC_OTP_API_URL || process.env.EXPO_PUBLIC_API_URL || "").trim();
+  const base = (process.env.EXPO_PUBLIC_API_URL || "").trim();
   if (!base) {
     throw new OtpApiError("otp_api_url_missing", "OTP API URL is missing.");
   }
@@ -212,7 +212,7 @@ export async function verifyOtpRequest(
   code: string,
   _requestId?: string
 ): Promise<{ verified: boolean; token?: string; user?: Record<string, unknown> }> {
-  const base = (process.env.EXPO_PUBLIC_OTP_API_URL || process.env.EXPO_PUBLIC_API_URL || "").trim().replace(/\/+$/, "");
+  const base = (process.env.EXPO_PUBLIC_API_URL || "").trim().replace(/\/+$/, "");
   const url = `${base}/api/auth/verify-otp`;
   console.log("VERIFY OTP URL =", url, { phone, code });
   const response = await fetch(url, {

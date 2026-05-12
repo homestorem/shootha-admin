@@ -6,5 +6,5 @@ export const BRAND = {
   nameUpper: "SHOOT'HA Business",
   slug: "shoota-business",
   iosBundleId: "com.shootabusiness.app",
-  androidPackage: "com.shootabusiness.app"
+  androidPackage: "com.shootha.app"
 } as const;

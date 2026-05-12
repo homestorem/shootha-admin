@@ -33,7 +33,7 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#00E676"
       },
-      "package": "com.shootabusiness.app",
+      "package": "com.shootha.app",
       "googleServicesFile": "./google-services.json"
     },
     "plugins": [
