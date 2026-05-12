@@ -18,3 +18,7 @@ services:
         sync: false
       - key: TRUST_PROXY_HOPS
         value: "1"
+      - key: FIREBASE_SERVICE_ACCOUNT_JSON
+        sync: false
+      - key: OTP_ENFORCE_APP_CHECK
+        value: "0"
